@@ -74,7 +74,7 @@ struct XtreamServerInfo: Decodable, Hashable, Sendable {
 
 // MARK: - Live Catalog
 
-struct XtreamLiveCategory: Decodable, Hashable, Sendable {
+struct XtreamLiveCategory: Codable, Hashable, Sendable {
     let categoryID: String
     let name: String
     let parentID: String?
@@ -93,7 +93,7 @@ struct XtreamLiveCategory: Decodable, Hashable, Sendable {
     }
 }
 
-struct XtreamLiveStream: Decodable, Hashable, Sendable {
+struct XtreamLiveStream: Codable, Hashable, Sendable {
     let streamID: String
     let name: String
     let streamIconURL: URL?
@@ -118,6 +118,16 @@ struct XtreamLiveStream: Decodable, Hashable, Sendable {
         categoryID = try container.decodeFlexibleStringIfPresent(forKey: .categoryID)
         streamType = try container.decodeIfPresent(String.self, forKey: .streamType)
         addedDate = try container.decodeUnixDateIfPresent(forKey: .added)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(streamID, forKey: .streamID)
+        try container.encode(name, forKey: .name)
+        try container.encodeIfPresent(streamIconURL?.absoluteString, forKey: .streamIcon)
+        try container.encodeIfPresent(categoryID, forKey: .categoryID)
+        try container.encodeIfPresent(streamType, forKey: .streamType)
+        try container.encodeIfPresent(addedDate?.timeIntervalSince1970, forKey: .added)
     }
 }
 
