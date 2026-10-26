@@ -191,6 +191,9 @@ final class LoggingService: Sendable {
     /// This method is nonisolated to allow safe logging from any thread.
     /// OSLog output is synchronous; in-app storage is dispatched to MainActor.
     nonisolated func log(level: LogLevel, category: LogCategory, message: String, details: String? = nil) {
+        let sanitizedMessage = SensitiveLogSanitizer.sanitize(message)
+        let sanitizedDetails = details.map(SensitiveLogSanitizer.sanitize)
+
         // Log to OSLog in DEBUG builds for Xcode console visibility
         // OSLog/Logger is thread-safe, so this can be called from any thread.
         // The master "Enable Logging" toggle gates this too - it takes
@@ -198,7 +201,7 @@ final class LoggingService: Sendable {
         // (Read UserDefaults directly: this runs off the MainActor.)
         #if DEBUG
         if UserDefaults.standard.bool(forKey: "loggingEnabled") {
-            let fullMessage = details.map { "\(message) - \($0)" } ?? message
+            let fullMessage = sanitizedDetails.map { "\(sanitizedMessage) - \($0)" } ?? sanitizedMessage
             switch level {
             case .debug:
                 osLogger.debug("[\(category.rawValue)] \(fullMessage)")
@@ -221,8 +224,8 @@ final class LoggingService: Sendable {
             let entry = LogEntry(
                 level: level,
                 category: category,
-                message: message,
-                details: details
+                message: sanitizedMessage,
+                details: sanitizedDetails
             )
 
             self.entries.insert(entry, at: 0)

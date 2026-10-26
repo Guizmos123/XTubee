@@ -278,20 +278,7 @@ final class LogExportHTTPServer {
     }
 
     private func sanitizedLogExport(_ logs: String) -> String {
-        let redactions = [
-            (#"(?i)(\b(?:authorization|proxy-authorization|cookie|set-cookie|x-api-key)\s*:\s*)[^\r\n]+"#, "$1[REDACTED]"),
-            (#"(?i)(\"(?:password|passwd|access_token|refresh_token|api_key|apikey|client_secret|token)\"\s*:\s*\")[^\"]*(\")"#, "$1[REDACTED]$2"),
-            (#"(?i)(\b(?:password|passwd|access_token|refresh_token|api_key|apikey|client_secret|token)\s*=\s*)[^&\s,;]+"#, "$1[REDACTED]"),
-            (#"(?i)(://[^:/\s]+:)[^@/\s]+(@)"#, "$1[REDACTED]$2")
-        ]
-
-        return redactions.reduce(logs) { result, redaction in
-            result.replacingOccurrences(
-                of: redaction.0,
-                with: redaction.1,
-                options: .regularExpression
-            )
-        }
+        SensitiveLogSanitizer.sanitize(logs)
     }
 
     /// Generate a filename with device name, build number, and timestamp.

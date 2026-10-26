@@ -57,7 +57,7 @@ enum MPVError: LocalizedError {
         case .initializationFailed:
             return "Failed to initialize MPV"
         case .commandFailed(let cmd):
-            return "MPV command failed: \(cmd)"
+            return "MPV command failed: \(SensitiveLogSanitizer.sanitize(cmd))"
         case .propertyError(let prop):
             return "MPV property error: \(prop)"
         case .renderContextFailed:
@@ -250,7 +250,13 @@ final class MPVClient: @unchecked Sendable {
         }
         guard !text.isEmpty else { return }
 
-        let line = MPVLogLine(prefix: prefix, level: level, text: text)
+        // This buffer is also used to build errors shown in the UI, so sanitize
+        // before retaining the raw libmpv message rather than only when exporting.
+        let line = MPVLogLine(
+            prefix: SensitiveLogSanitizer.sanitize(prefix),
+            level: level,
+            text: SensitiveLogSanitizer.sanitize(text)
+        )
 
         logBufferLock.lock()
         recentLogBuffer.append(line)
