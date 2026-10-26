@@ -16,6 +16,7 @@ enum XtreamClientError: Error, LocalizedError, Equatable, Sendable {
     case invalidHTTPResponse
     case httpStatus(Int)
     case responseTooLarge(maximumBytes: Int)
+    case invalidJSON
     case decodingFailed
 
     var errorDescription: String? {
@@ -36,6 +37,8 @@ enum XtreamClientError: Error, LocalizedError, Equatable, Sendable {
             return "The IPTV server returned HTTP status \(statusCode)."
         case .responseTooLarge(let maximumBytes):
             return "The IPTV server response exceeded the \(maximumBytes)-byte limit."
+        case .invalidJSON:
+            return "The IPTV server returned invalid JSON."
         case .decodingFailed:
             return "The IPTV server response could not be decoded."
         }
@@ -133,6 +136,12 @@ actor XtreamHTTPClient {
             }
         } catch {
             throw XtreamClientError.transportFailure
+        }
+
+        do {
+            _ = try JSONSerialization.jsonObject(with: data)
+        } catch {
+            throw XtreamClientError.invalidJSON
         }
 
         do {
