@@ -21,6 +21,7 @@ struct IPTVSourceDetailView: View {
     @State private var showingEditSheet = false
     @State private var showingDeleteConfirmation = false
     @State private var refreshTask: Task<Void, Never>?
+    @State private var catalogSyncService: IPTVLiveCatalogSyncService?
 
     private var source: IPTVSource? {
         appEnvironment?.iptvSourcesManager.sources.first { $0.id == sourceID }
@@ -58,12 +59,15 @@ struct IPTVSourceDetailView: View {
             }
         }
         .task(id: sourceID) {
+            prepareCatalogCache()
             startRefresh()
         }
         .onDisappear {
             refreshTask?.cancel()
         }
-        .sheet(isPresented: $showingEditSheet, onDismiss: startRefresh) {
+        .sheet(isPresented: $showingEditSheet, onDismiss: {
+            startRefresh(refreshCatalog: true)
+        }) {
             NavigationStack {
                 if let source {
                     AddIPTVSourceView(editingSource: source)
@@ -141,6 +145,11 @@ struct IPTVSourceDetailView: View {
                 value: account?.maxConnections.map { String($0) } ?? notProvided
             )
             detailRow(
+                AppLocalization.string("sources.iptv.detail.channels"),
+                icon: "tv",
+                value: streamCountDescription
+            )
+            detailRow(
                 AppLocalization.string("sources.iptv.field.formats"),
                 icon: "play.rectangle.on.rectangle",
                 value: formatsDescription
@@ -185,7 +194,7 @@ struct IPTVSourceDetailView: View {
     private func actionsSection(_ source: IPTVSource) -> some View {
         Section {
             Button {
-                startRefresh()
+                startRefresh(refreshCatalog: true)
             } label: {
                 Label(AppLocalization.string("common.refresh"), systemImage: "arrow.clockwise")
             }
@@ -228,6 +237,13 @@ struct IPTVSourceDetailView: View {
         return formats.joined(separator: ", ")
     }
 
+    private var streamCountDescription: String {
+        guard let catalog = catalogSyncService?.state(for: sourceID).catalog else {
+            return AppLocalization.string("sources.iptv.detail.unavailableValue")
+        }
+        return String(catalog.streams.count)
+    }
+
     private var statusColor: Color {
         guard let status = account?.status.lowercased() else { return .secondary }
         switch status {
@@ -248,12 +264,31 @@ struct IPTVSourceDetailView: View {
         return expirationDay > today ? .green : .red
     }
 
-    private func startRefresh() {
+    private func startRefresh(refreshCatalog: Bool = false) {
         refreshTask?.cancel()
         refreshTask = Task {
-            await refresh()
+            if refreshCatalog, let catalogSyncService {
+                async let accountRefresh: Void = refresh()
+                async let catalogRefresh: Void = catalogSyncService.refresh(sourceID: sourceID)
+                _ = await (accountRefresh, catalogRefresh)
+            } else {
+                await refresh()
+            }
             refreshTask = nil
         }
+    }
+
+    private func prepareCatalogCache() {
+        guard catalogSyncService == nil,
+              let environment = appEnvironment else {
+            return
+        }
+        let service = IPTVLiveCatalogSyncService(
+            sourcesManager: environment.iptvSourcesManager,
+            credentialsStore: environment.xtreamCredentialsStore
+        )
+        service.loadCachedCatalog(sourceID: sourceID)
+        catalogSyncService = service
     }
 
     @MainActor

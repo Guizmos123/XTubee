@@ -138,13 +138,13 @@ final class IPTVLiveCatalogSyncService {
         sourcesManager: IPTVSourcesManager,
         credentialsStore: XtreamCredentialsStoring,
         catalogClient: XtreamLiveCatalogClient = XtreamLiveCatalogClient(),
-        persistence: IPTVLiveCatalogPersisting = FileIPTVLiveCatalogPersistence(),
+        persistence: IPTVLiveCatalogPersisting? = nil,
         cacheLifetime: TimeInterval = 24 * 60 * 60,
         now: @escaping @Sendable () -> Date = { Date() }
     ) {
         self.sourcesManager = sourcesManager
         self.credentialsStore = credentialsStore
-        self.persistence = persistence
+        self.persistence = persistence ?? FileIPTVLiveCatalogPersistence()
         fetchCategories = { serverURL, username, password in
             try await catalogClient.fetchCategories(
                 serverURL: serverURL,

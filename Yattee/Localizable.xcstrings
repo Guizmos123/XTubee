@@ -27838,6 +27838,22 @@
         }
       }
     },
+    "sources.iptv.detail.channels" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Channels"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chaînes"
+          }
+        }
+      }
+    },
     "sources.iptv.detail.host" : {
       "localizations" : {
         "en" : {
@@ -27914,6 +27930,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Cette source IPTV n’est plus disponible."
+          }
+        }
+      }
+    },
+    "sources.iptv.detail.unavailableValue" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unavailable"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Non disponible"
           }
         }
       }
