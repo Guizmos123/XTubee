@@ -18,6 +18,8 @@ final class AppEnvironment {
 
     let settingsManager: SettingsManager
     let instancesManager: InstancesManager
+    let iptvSourcesManager: IPTVSourcesManager
+    let xtreamCredentialsStore: XtreamCredentialsStore
     let contentService: ContentService
     let instanceDetector: InstanceDetector
     let dataManager: DataManager
@@ -82,6 +84,8 @@ final class AppEnvironment {
         httpClient: HTTPClient? = nil,
         settingsManager: SettingsManager? = nil,
         instancesManager: InstancesManager? = nil,
+        iptvSourcesManager: IPTVSourcesManager? = nil,
+        xtreamCredentialsStore: XtreamCredentialsStore? = nil,
         dataManager: DataManager,
         navigationCoordinator: NavigationCoordinator? = nil,
         downloadManager: DownloadManager? = nil,
@@ -103,6 +107,13 @@ final class AppEnvironment {
         let instances = instancesManager ?? InstancesManager(settingsManager: settings)
         instances.setSettingsManager(settings)
         self.instancesManager = instances
+
+        let xtreamCredentials = xtreamCredentialsStore ?? XtreamCredentialsStore()
+        self.xtreamCredentialsStore = xtreamCredentials
+        self.iptvSourcesManager = iptvSourcesManager ?? IPTVSourcesManager(
+            persistence: UserDefaultsIPTVSourcesPersistence(),
+            credentialsStore: xtreamCredentials
+        )
 
         // Initialize Basic Auth Credentials Manager early (needed for ContentService)
         let basicAuthCreds = BasicAuthCredentialsManager()
