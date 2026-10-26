@@ -1,0 +1,332 @@
+//
+//  ImportSubscriptionsView.swift
+//  Yattee
+//
+//  View for importing subscriptions from an Invidious or Piped instance to local storage.
+//
+
+import SwiftUI
+
+struct ImportSubscriptionsView: View {
+    let instance: Instance
+
+    @Environment(\.appEnvironment) private var appEnvironment
+
+    @State private var channels: [Channel] = []
+    @State private var subscribedChannelIDs: Set<String> = []
+    @State private var isLoading = true
+    @State private var error: Error?
+    @State private var showAddAllConfirmation = false
+    @State private var importResult: RemoteSubscriptionImportResult?
+
+    private var yatteeServer: Instance? {
+        appEnvironment?.instancesManager.enabledYatteeServerInstances.first
+    }
+
+    private var yatteeServerAuthHeader: String? {
+        guard let yatteeServer else { return nil }
+        return appEnvironment?.basicAuthCredentialsManager.basicAuthHeader(for: yatteeServer)
+    }
+
+    // MARK: - Accessibility Identifiers
+
+    private enum AccessibilityID {
+        static let view = "import.subscriptions.view"
+        static let loadingIndicator = "import.subscriptions.loading"
+        static let errorMessage = "import.subscriptions.error"
+        static let emptyState = "import.subscriptions.empty"
+        static let list = "import.subscriptions.list"
+        static func row(_ channelID: String) -> String {
+            "import.subscriptions.row.\(channelID)"
+        }
+        static func addButton(_ channelID: String) -> String {
+            "import.subscriptions.add.\(channelID)"
+        }
+        static func subscribedIndicator(_ channelID: String) -> String {
+            "import.subscriptions.subscribed.\(channelID)"
+        }
+        static let addAllButton = "import.subscriptions.addAll"
+    }
+
+    // MARK: - Body
+
+    var body: some View {
+        content
+            #if !os(tvOS)
+            .reactiveNavigationTitle(AppLocalization.string("import.subscriptions.title"))
+            #endif
+            .accessibilityIdentifier(AccessibilityID.view)
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .toolbar {
+                if !unsubscribedChannels.isEmpty {
+                    ToolbarItem(placement: .primaryAction) {
+                        Button {
+                            showAddAllConfirmation = true
+                        } label: {
+                            Label(AppLocalization.string("import.subscriptions.addAll"), systemImage: "plus.circle")
+                        }
+                        .accessibilityIdentifier(AccessibilityID.addAllButton)
+                    }
+                }
+            }
+            .confirmationDialog(
+                AppLocalization.string("import.subscriptions.addAllConfirmation \(unsubscribedChannels.count)"),
+                isPresented: $showAddAllConfirmation,
+                titleVisibility: .visible
+            ) {
+                Button(AppLocalization.string("import.subscriptions.addAll")) {
+                    addAllSubscriptions()
+                }
+            }
+            .presentationCompactAdaptation(.sheet)
+            .task {
+                await loadSubscriptions()
+            }
+    }
+
+    // MARK: - Content Views
+
+    @ViewBuilder
+    private var content: some View {
+        if isLoading {
+            loadingView
+        } else if let error {
+            errorView(error)
+        } else if channels.isEmpty {
+            emptyView
+        } else {
+            listView
+        }
+    }
+
+    private var loadingView: some View {
+        VStack(spacing: 16) {
+            ProgressView()
+            Text(AppLocalization.string("import.subscriptions.loading"))
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityIdentifier(AccessibilityID.loadingIndicator)
+    }
+
+    private func errorView(_ error: Error) -> some View {
+        ContentUnavailableView {
+            Label(AppLocalization.string("import.subscriptions.error"), systemImage: "exclamationmark.triangle")
+        } description: {
+            Text(error.localizedDescription)
+        } actions: {
+            Button(AppLocalization.string("common.retry")) {
+                Task { await loadSubscriptions() }
+            }
+            .buttonStyle(.bordered)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityIdentifier(AccessibilityID.errorMessage)
+    }
+
+    private var emptyView: some View {
+        ContentUnavailableView(
+            AppLocalization.string("import.subscriptions.emptyTitle"),
+            systemImage: "person.2.slash",
+            description: Text(AppLocalization.string("import.subscriptions.emptyDescription"))
+        )
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityIdentifier(AccessibilityID.emptyState)
+    }
+
+    private var listView: some View {
+        List {
+            if let importResult {
+                Section(AppLocalization.string("import.subscriptions.result.title")) {
+                    resultRow("import.subscriptions.result.found", value: importResult.found)
+                    resultRow("import.subscriptions.result.imported", value: importResult.imported)
+                    resultRow("import.subscriptions.result.alreadyPresent", value: importResult.alreadyPresent)
+                    resultRow("import.subscriptions.result.errors", value: importResult.errors)
+                }
+            }
+
+            ForEach(channels) { channel in
+                subscriptionRow(channel)
+                    .accessibilityIdentifier(AccessibilityID.row(channel.id.channelID))
+            }
+        }
+        .opaqueSettingsFormBackground()
+        .accessibilityIdentifier(AccessibilityID.list)
+    }
+
+    private func resultRow(_ key: String.LocalizationValue, value: Int) -> some View {
+        LabeledContent(AppLocalization.string(key), value: String(value))
+    }
+
+    // MARK: - Row View
+
+    @ViewBuilder
+    private func subscriptionRow(_ channel: Channel) -> some View {
+        HStack(spacing: 12) {
+            // Channel avatar
+            ChannelAvatarView(
+                channelID: channel.id.channelID,
+                name: channel.name,
+                directURL: channel.thumbnailURL,
+                yatteeServerURL: yatteeServer?.url,
+                size: 32,
+                authHeader: yatteeServerAuthHeader,
+                source: channel.id.source
+            )
+
+            // Name
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 4) {
+                    Text(channel.name)
+                        .lineLimit(1)
+
+                    if channel.isVerified {
+                        Image(systemName: "checkmark.seal.fill")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                if let subscriberCount = channel.formattedSubscriberCount {
+                    Text(subscriberCount)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Spacer()
+
+            // Add/Subscribed indicator
+            if subscribedChannelIDs.contains(channel.id.channelID) {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
+                    .imageScale(.large)
+                    .accessibilityIdentifier(AccessibilityID.subscribedIndicator(channel.id.channelID))
+            } else {
+                Button {
+                    addSubscription(channel)
+                } label: {
+                    Image(systemName: "plus.circle")
+                        .imageScale(.large)
+                }
+                .buttonStyle(.borderless)
+                .accessibilityIdentifier(AccessibilityID.addButton(channel.id.channelID))
+            }
+        }
+        .contentShape(Rectangle())
+    }
+
+    // MARK: - Computed Properties
+
+    private var unsubscribedChannels: [Channel] {
+        channels.filter { !subscribedChannelIDs.contains($0.id.channelID) }
+    }
+
+    // MARK: - Actions
+
+    private func loadSubscriptions() async {
+        guard let appEnvironment,
+              let credential = appEnvironment.credentialsManager(for: instance)?.credential(for: instance) else {
+            error = ImportError.notLoggedIn
+            isLoading = false
+            return
+        }
+
+        isLoading = true
+        error = nil
+
+        do {
+            let fetchedChannels: [Channel]
+
+            switch instance.type {
+            case .invidious:
+                let api = InvidiousAPI(httpClient: appEnvironment.httpClient)
+                let subscriptions = try await api.subscriptions(instance: instance, sid: credential)
+                fetchedChannels = subscriptions.map { $0.toChannel(baseURL: instance.url) }
+
+            case .piped:
+                let api = PipedAPI(httpClient: appEnvironment.httpClient)
+                let subscriptions = try await api.subscriptions(instance: instance, authToken: credential)
+                fetchedChannels = subscriptions.map { $0.toChannel() }
+
+            default:
+                throw ImportError.notSupported
+            }
+
+            channels = fetchedChannels.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+
+            // Get already-subscribed channel IDs
+            subscribedChannelIDs = Set(
+                appEnvironment.dataManager.subscriptions().map(\.channelID)
+            )
+
+            isLoading = false
+        } catch {
+            self.error = error
+            isLoading = false
+        }
+    }
+
+    private func addSubscription(_ channel: Channel) {
+        guard let dataManager = appEnvironment?.dataManager else { return }
+
+        let result = dataManager.importRemoteSubscriptions([channel])
+        importResult = result
+        subscribedChannelIDs = Set(dataManager.subscriptions().map(\.channelID))
+
+        if result.imported > 0 {
+            appEnvironment?.toastManager.showSuccess(AppLocalization.string("import.subscriptions.added.title"))
+        }
+    }
+
+    private func addAllSubscriptions() {
+        guard let dataManager = appEnvironment?.dataManager else { return }
+
+        let result = dataManager.importRemoteSubscriptions(channels)
+        importResult = result
+        subscribedChannelIDs = Set(dataManager.subscriptions().map(\.channelID))
+
+        appEnvironment?.toastManager.showSuccess(
+            AppLocalization.string("import.subscriptions.result.title"),
+            subtitle: AppLocalization.string("import.subscriptions.count.subtitle \(result.imported)")
+        )
+    }
+
+    // MARK: - Errors
+
+    enum ImportError: LocalizedError {
+        case notLoggedIn
+        case notSupported
+
+        var errorDescription: String? {
+            switch self {
+            case .notLoggedIn:
+                return AppLocalization.string("import.subscriptions.notLoggedIn")
+            case .notSupported:
+                return AppLocalization.string("import.subscriptions.notSupported")
+            }
+        }
+    }
+}
+
+// MARK: - Preview
+
+#Preview("Invidious") {
+    NavigationStack {
+        ImportSubscriptionsView(
+            instance: Instance(type: .invidious, url: URL(string: "https://invidious.example.com")!)
+        )
+        .appEnvironment(.preview)
+    }
+}
+
+#Preview("Piped") {
+    NavigationStack {
+        ImportSubscriptionsView(
+            instance: Instance(type: .piped, url: URL(string: "https://piped.example.com")!)
+        )
+        .appEnvironment(.preview)
+    }
+}

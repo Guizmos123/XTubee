@@ -1,0 +1,1660 @@
+//
+//  HomeView.swift
+//  Yattee
+//
+//  Home tab with shortcuts dashboard for Playlists, History, and Downloads.
+//
+
+import Foundation
+import SwiftUI
+
+struct HomeView: View {
+    private struct DataReloadScope: OptionSet {
+        let rawValue: UInt8
+
+        static let playlists = DataReloadScope(rawValue: 1 << 0)
+        static let bookmarks = DataReloadScope(rawValue: 1 << 1)
+        static let history = DataReloadScope(rawValue: 1 << 2)
+        static let channels = DataReloadScope(rawValue: 1 << 3)
+        static let visibility = DataReloadScope(rawValue: 1 << 4)
+        static let full: DataReloadScope = [.playlists, .bookmarks, .history, .channels, .visibility]
+    }
+
+    let customizationContext: HomeCustomizationContext
+
+    init(customizationContext: HomeCustomizationContext = .home) {
+        self.customizationContext = customizationContext
+    }
+
+    @Environment(\.appEnvironment) private var appEnvironment
+    @Environment(\.scenePhase) private var scenePhase
+    #if !os(tvOS) && !os(macOS)
+    @Namespace private var sheetTransition
+    #endif
+    @State private var playlists: [LocalPlaylist] = []
+    @State private var recentBookmarks: [Bookmark] = []
+    @State private var recentContinueWatching: [WatchEntry] = []
+    @State private var recentHistory: [WatchEntry] = []
+    #if !os(tvOS) && !os(macOS)
+    @State private var showingSettings = false
+    #endif
+    @State private var showingOpenLink = false
+    @State private var showingRemoteControl = false
+    @State private var showingCustomizeHome = false
+    @State private var remoteChannelsCount: LocalCountState = .notLoaded
+    @State private var discoveredDevicesCount: Int = 0
+    @State private var feedCache = SubscriptionFeedCache.shared
+    @State private var pendingDataReload: DataReloadScope = .full
+    @State private var dataReloadGeneration = 0
+
+    private var dataManager: DataManager? { appEnvironment?.dataManager }
+    private var settingsManager: SettingsManager? { appEnvironment?.settingsManager }
+
+    private var localStatistics: LocalDataStatistics {
+        dataManager?.localStatistics ?? LocalDataStatistics()
+    }
+
+    private var channelsCountState: LocalCountState {
+        guard let service = appEnvironment?.subscriptionService else { return .notLoaded }
+        return service.currentAccountType == .local
+            ? localStatistics.subscriptions
+            : remoteChannelsCount
+    }
+
+    private var presentationSettings: HomePresentationSettings? {
+        settingsManager?.presentationSettings(for: customizationContext)
+    }
+
+    private var accentColor: Color {
+        appEnvironment?.settingsManager.resolvedAccentColor ?? .accentColor
+    }
+
+    #if !os(tvOS)
+    private var downloadManager: DownloadManager? { appEnvironment?.downloadManager }
+    #endif
+
+    private var columns: [GridItem] {
+        #if os(tvOS)
+        [GridItem(.adaptive(minimum: 280, maximum: 380), spacing: 16)]
+        #else
+        [GridItem(.adaptive(minimum: 150), spacing: 8)]
+        #endif
+    }
+
+    private var sectionItemsLimit: Int {
+        presentationSettings?.sectionItemsLimit ?? SettingsManager.defaultHomeSectionItemsLimit
+    }
+
+    /// Check if any shortcuts are visible
+    private var hasVisibleShortcuts: Bool {
+        guard let settings = settingsManager else { return true }
+        return !settings.presentationSettings(for: customizationContext).visibleShortcuts.isEmpty
+    }
+
+    private var showsShortcutsOnCurrentPlatform: Bool {
+        #if os(tvOS)
+        switch customizationContext {
+        case .home: false
+        case .hub: true
+        }
+        #else
+        true
+        #endif
+    }
+
+    /// The current layout for shortcuts (list or cards)
+    private var shortcutLayout: HomeShortcutLayout {
+        presentationSettings?.shortcutLayout ?? .cards
+    }
+
+    /// The current layout for home sections (list or grid)
+    private var sectionLayout: HomeSectionLayout {
+        presentationSettings?.sectionLayout ?? HomeSectionLayout.platformDefault
+    }
+
+    /// List style from centralized settings.
+    private var listStyle: VideoListStyle {
+        appEnvironment?.settingsManager.listStyle ?? .inset
+    }
+
+    private var localizationLocale: Locale {
+        appEnvironment?.settingsManager.appLanguage.locale ?? AppLanguage.english.locale
+    }
+
+    private var navigationTitle: String {
+        switch customizationContext {
+        case .home:
+            AppLocalization.string("tabs.home")
+        case .hub:
+            AppLocalization.string("tabs.hub")
+        }
+    }
+
+    var body: some View {
+        mainContent
+        .environment(\.homeShortcutCardStyle, presentationSettings?.shortcutCardStyle ?? .regular)
+        .environment(\.homeShortcutCardColor, presentationSettings?.shortcutCardColor ?? .soft)
+        .environment(\.locale, localizationLocale)
+        #if !os(tvOS)
+        .reactiveNavigationTitle(navigationTitle)
+        .navigationSubtitleIfAvailable(
+            settingsManager?.incognitoModeEnabled == true
+                ? AppLocalization.string("home.incognitoMode.subtitle")
+                : nil
+        )
+        .toolbarTitleDisplayMode(.inlineLarge)
+        #endif
+        .toolbar {
+            #if !os(tvOS) && !os(macOS)
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    showingSettings = true
+                } label: {
+                    Image(systemName: "gear")
+                }
+                .accessibilityIdentifier("home.settingsButton")
+                .accessibilityLabel(AppLocalization.string("settings.title"))
+                .liquidGlassTransitionSource(id: "homeSettings", in: sheetTransition)
+            }
+            #endif
+        }
+        #if !os(tvOS) && !os(macOS)
+        .sheet(isPresented: $showingSettings) {
+            SettingsView()
+                .liquidGlassSheetContent(sourceID: "homeSettings", in: sheetTransition)
+        }
+        .onChange(of: appEnvironment?.navigationCoordinator.dismissSettingsTrigger) {
+            showingSettings = false
+        }
+        #endif
+        .sheet(isPresented: $showingOpenLink) {
+            OpenLinkSheet()
+        }
+        .sheet(isPresented: $showingRemoteControl) {
+            RemoteDevicesSheet()
+        }
+        #if !os(tvOS)
+        .sheet(isPresented: $showingCustomizeHome) {
+            NavigationStack {
+                HomeSettingsView(customizationContext: customizationContext)
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button(AppLocalization.string("common.done")) {
+                                showingCustomizeHome = false
+                            }
+                        }
+                    }
+            }
+            #if os(macOS)
+            .frame(minWidth: 500, minHeight: 450)
+            #endif
+        }
+        #endif
+        .onChange(of: scenePhase) { _, newPhase in
+            if newPhase == .active {
+                requestDataReload()
+            }
+        }
+        .task(id: dataReloadGeneration) {
+            await Task.yield()
+            guard !Task.isCancelled else { return }
+
+            let scope = pendingDataReload
+            pendingDataReload = []
+            loadData(scope)
+        }
+        .task {
+            if let appEnvironment {
+                await feedCache.loadFromDiskIfNeeded(using: appEnvironment)
+            }
+            await appEnvironment?.homeInstanceCache.loadFromDiskIfNeeded()
+            await refreshHomeInstanceContent()
+        }
+        .onChange(of: appEnvironment?.navigationCoordinator.isPlayerExpanded) { _, isExpanded in
+            // Refresh when player is collapsed
+            if isExpanded == false {
+                requestDataReload()
+            }
+        }
+        .onChange(of: appEnvironment?.navigationCoordinator.selectedTab) { _, newTab in
+            if newTab == .home {
+                requestDataReload()
+            }
+        }
+        .onChange(of: showingCustomizeHome) { _, isShowing in
+            if !isShowing {
+                requestDataReload()
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .bookmarksDidChange)) { _ in
+            requestDataReload(.bookmarks)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .watchHistoryDidChange)) { _ in
+            requestDataReload(.history)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .playlistsDidChange)) { _ in
+            requestDataReload(.playlists)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .subscriptionsDidChange)) { _ in
+            requestDataReload(.channels)
+        }
+    }
+
+    // MARK: - Main Content
+
+    #if os(tvOS)
+    /// True on tvOS when no Home section would render content — prevents a focus trap
+    /// on fresh installs where the detail pane would otherwise be completely empty.
+    private var isHomeEmpty: Bool {
+        if showsShortcutsOnCurrentPlatform && hasVisibleShortcuts {
+            return false
+        }
+        let sections = presentationSettings?.visibleSections ?? HomeSectionItem.defaultOrder.filter { HomeSectionItem.defaultVisibility[$0] == true }
+        for section in sections {
+            switch section {
+            case .continueWatching:
+                if !recentContinueWatching.isEmpty { return false }
+            case .feed:
+                if !feedCache.videos.isEmpty { return false }
+            case .bookmarks:
+                if !recentBookmarks.isEmpty { return false }
+            case .history:
+                if !recentHistory.isEmpty { return false }
+            case .downloads:
+                break
+            case .instanceContent, .mediaSource:
+                return false
+            }
+        }
+        return true
+    }
+
+    private var emptyHomeView: some View {
+        VStack(spacing: 32) {
+            VStack(spacing: 12) {
+                Text(AppLocalization.string("home.tvos.empty.title"))
+                    .font(.title2)
+                    .fontWeight(.semibold)
+                Text(AppLocalization.string("home.tvos.empty.message"))
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+            Button {
+                appEnvironment?.navigationCoordinator.selectedSidebarItem = .sources
+            } label: {
+                Label(AppLocalization.string("home.tvos.empty.openSources"), systemImage: "externaldrive.connected.to.line.below")
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+            }
+        }
+        .padding(60)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+    #endif
+
+    @ViewBuilder
+    private var mainContent: some View {
+        #if os(tvOS)
+        if isHomeEmpty {
+            emptyHomeView
+        } else {
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    homeContent
+                }
+            }
+            .scrollClipDisabled()
+        }
+        #else
+        let backgroundStyle: ListBackgroundStyle = listStyle == .inset ? .grouped : .plain
+        backgroundStyle.color
+            .ignoresSafeArea()
+            .overlay(
+                ScrollView {
+                    LazyVStack(spacing: 0) {
+                        Spacer().frame(height: 16)
+                        homeContent
+                    }
+                }
+            )
+        #endif
+    }
+
+    // MARK: - Home Content
+
+    @ViewBuilder
+    private var homeContent: some View {
+        if showsShortcutsOnCurrentPlatform && hasVisibleShortcuts {
+            shortcutsSection
+        }
+
+        ForEach(presentationSettings?.visibleSections ?? HomeSectionItem.defaultOrder.filter { HomeSectionItem.defaultVisibility[$0] == true }) { section in
+            sectionView(for: section)
+        }
+
+        #if !os(tvOS)
+        customizeButton
+        #endif
+    }
+
+    // MARK: - Section Header Helper
+
+    private func sectionHeader(title: LocalizedStringKey, action: @escaping () -> Void) -> some View {
+        Group {
+            #if os(tvOS)
+            Text(title)
+                .fontWeight(.semibold)
+            #else
+            Button(action: action) {
+                HStack(spacing: 4) {
+                    Text(title)
+                        .fontWeight(.semibold)
+                    Image(systemName: "chevron.right")
+                        .font(.caption)
+                }
+                .foregroundStyle(accentColor)
+            }
+            .buttonStyle(.plain)
+            #endif
+        }
+        .padding(.horizontal, listStyle == .inset ? 32 : 16)
+        .padding(.top, 16)
+        #if os(tvOS)
+        .padding(.bottom, 24)
+        #else
+        .padding(.bottom, 8)
+        #endif
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    // MARK: - Customize Button
+
+    #if !os(tvOS)
+    private var customizeButton: some View {
+        #if os(macOS)
+        HStack {
+            Spacer()
+            Button {
+                showingCustomizeHome = true
+            } label: {
+                Label(AppLocalization.string("home.customize"), systemImage: "gear")
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.regular)
+            Spacer()
+        }
+        .padding(.top, 16)
+        .padding(.bottom, 32)
+        #else
+        Button {
+            showingCustomizeHome = true
+        } label: {
+            HStack(spacing: 6) {
+                Spacer()
+                Image(systemName: "gear")
+                Text(AppLocalization.string("home.customize"))
+                    .fontWeight(.semibold)
+                Spacer()
+            }
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.secondary)
+        .padding(.top, 16)
+        .padding(.bottom, 32)
+        #endif
+    }
+    #endif
+
+    // MARK: - Shortcuts Section
+
+    private var shortcutsSection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if shortcutLayout == .list {
+                VideoListContent(listStyle: listStyle) {
+                    shortcutsList
+                }
+            } else {
+                shortcutsCardContent
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var shortcutsCardContent: some View {
+        if listStyle == .inset {
+            VStack(spacing: 0) {
+                shortcutsGrid
+                    .padding(.vertical, 12)
+                    .padding(.horizontal, 12)
+            }
+            .background(ListBackgroundStyle.card.color)
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .padding(.horizontal, 16)
+            .padding(.bottom, 16)
+        } else {
+            shortcutsGrid
+                .padding(.horizontal, 16)
+                .padding(.bottom, 16)
+        }
+    }
+
+    private var shortcutsGrid: some View {
+        #if os(tvOS)
+        let gridSpacing: CGFloat = 16
+        #else
+        let gridSpacing: CGFloat = 8
+        #endif
+
+        let shortcuts = presentationSettings?.visibleShortcuts ?? HomeShortcutItem.defaultOrder
+
+        return LazyVGrid(columns: columns, spacing: gridSpacing) {
+            ForEach(Array(shortcuts.enumerated()), id: \.element.id) { index, shortcut in
+                shortcutCardView(for: shortcut)
+                    .environment(\.homeShortcutColorfulColor, colorfulColor(atPosition: index))
+                    #if !os(tvOS)
+                    .contextMenu {
+                        hideShortcutButton(for: shortcut)
+                        editShortcutsButton
+                    }
+                    #endif
+            }
+        }
+        #if os(iOS)
+        // WORKAROUND: Prevent UICollectionView layout oscillation during iPad Stage Manager window resize.
+        // The LazyVGrid inside a List section can cause 1pt height differences between layout passes,
+        // triggering a feedback loop that crashes the app. Using geometryGroup() isolates the grid's
+        // geometry calculations from the parent collection view's layout system.
+        .geometryGroup()
+        #endif
+    }
+
+    /// Resolves the Regular-style fill color for a shortcut at the given grid
+    /// position from the selected palette (custom colors and accent color when
+    /// applicable).
+    private func colorfulColor(atPosition position: Int) -> Color {
+        let palette = presentationSettings?.shortcutColorfulPalette ?? .accent
+        let customHex = presentationSettings?.shortcutCustomPaletteColors ?? []
+        let accentColor = settingsManager?.resolvedAccentColor ?? .accentColor
+        return HomeShortcutColorfulPalette.color(forPosition: position, palette: palette, customHex: customHex, accentColor: accentColor)
+    }
+
+    private var shortcutsList: some View {
+        let shortcuts = presentationSettings?.visibleShortcuts ?? HomeShortcutItem.defaultOrder
+        return ForEach(Array(shortcuts.enumerated()), id: \.element) { index, shortcut in
+            VideoListRow(
+                isLast: index == shortcuts.count - 1,
+                rowStyle: .regular,
+                listStyle: listStyle,
+                contentWidth: 28
+            ) {
+                shortcutRowView(for: shortcut)
+            }
+            #if !os(tvOS)
+            .contextMenu {
+                hideShortcutButton(for: shortcut)
+                editShortcutsButton
+            }
+            #endif
+        }
+    }
+
+    #if !os(tvOS)
+    /// Context menu action that hides the given shortcut from Home.
+    private func hideShortcutButton(for shortcut: HomeShortcutItem) -> some View {
+        Button {
+            guard let settingsManager else { return }
+            var presentation = settingsManager.presentationSettings(for: customizationContext)
+            var visibility = presentation.shortcutVisibility
+            visibility[shortcut] = false
+            presentation.shortcutVisibility = visibility
+            settingsManager.setPresentationSettings(presentation, for: customizationContext)
+        } label: {
+            Label(AppLocalization.string("home.hideShortcut"), systemImage: "eye.slash")
+        }
+    }
+
+    /// Context menu action that opens the Home settings sheet to reorder/toggle shortcuts.
+    private var editShortcutsButton: some View {
+        Button {
+            showingCustomizeHome = true
+        } label: {
+            Label(AppLocalization.string("home.editShortcuts"), systemImage: "gear")
+        }
+    }
+    #endif
+
+    @ViewBuilder
+    private func shortcutCardView(for shortcut: HomeShortcutItem) -> some View {
+        switch shortcut {
+        case .openURL:
+            openURLShortcutCard
+        case .remoteControl:
+            remoteControlShortcutCard
+        case .playlists:
+            playlistsShortcutCard
+        case .bookmarks:
+            bookmarksShortcutCard
+        case .continueWatching:
+            continueWatchingShortcutCard
+        case .history:
+            historyShortcutCard
+        case .downloads:
+            #if !os(tvOS)
+            downloadsShortcutCard
+            #else
+            EmptyView()
+            #endif
+        case .channels:
+            channelsShortcutCard
+        case .subscriptions:
+            subscriptionsShortcutCard
+        case .mediaSources:
+            mediaSourcesShortcutCard
+        case .instanceContent(let instanceID, let contentType):
+            instanceContentShortcutCard(instanceID: instanceID, contentType: contentType)
+        case .mediaSource(let sourceID):
+            mediaSourceShortcutCard(sourceID: sourceID)
+        }
+    }
+
+    @ViewBuilder
+    private func shortcutRowView(for shortcut: HomeShortcutItem) -> some View {
+        switch shortcut {
+        case .openURL:
+            openURLShortcutRow
+        case .remoteControl:
+            remoteControlShortcutRow
+        case .playlists:
+            playlistsShortcutRow
+        case .bookmarks:
+            bookmarksShortcutRow
+        case .continueWatching:
+            continueWatchingShortcutRow
+        case .history:
+            historyShortcutRow
+        case .downloads:
+            #if !os(tvOS)
+            downloadsShortcutRow
+            #else
+            EmptyView()
+            #endif
+        case .channels:
+            channelsShortcutRow
+        case .subscriptions:
+            subscriptionsShortcutRow
+        case .mediaSources:
+            mediaSourcesShortcutRow
+        case .instanceContent(let instanceID, let contentType):
+            instanceContentShortcutRow(instanceID: instanceID, contentType: contentType)
+        case .mediaSource(let sourceID):
+            mediaSourceShortcutRow(sourceID: sourceID)
+        }
+    }
+
+    // MARK: - Shortcut Card Views
+
+    private var openURLShortcutCard: some View {
+        Button {
+            showingOpenLink = true
+        } label: {
+            HomeShortcutCardView(
+                icon: "link",
+                title: AppLocalization.string("home.shortcut.openURL"),
+                count: 0,
+                subtitle: "",
+                showsCount: false,
+                colorfulColor: HomeShortcutItem.openURL.cardColor
+            )
+        }
+        #if os(tvOS)
+        .buttonStyle(TVHomeCardButtonStyle())
+        #else
+        .buttonStyle(.plain)
+        #endif
+        .accessibilityIdentifier("home.shortcut.openURL")
+    }
+
+    private var remoteControlShortcutCard: some View {
+        let isHosting = appEnvironment?.localNetworkService.isHosting ?? false
+
+        return Button {
+            showingRemoteControl = true
+        } label: {
+            HomeShortcutCardView(
+                icon: "antenna.radiowaves.left.and.right",
+                title: AppLocalization.string("home.shortcut.remoteControl"),
+                count: discoveredDevicesCount,
+                subtitle: "",
+                showsCount: false,
+                colorfulColor: HomeShortcutItem.remoteControl.cardColor,
+                statusIndicator: Circle()
+                    .fill(isHosting ? Color.green : Color.red)
+                    .frame(width: 8, height: 8)
+            )
+        }
+        #if os(tvOS)
+        .buttonStyle(TVHomeCardButtonStyle())
+        #else
+        .buttonStyle(.plain)
+        #endif
+        .accessibilityIdentifier("home.shortcut.remoteControl")
+    }
+
+    private var playlistsShortcutCard: some View {
+        let state = localStatistics.playlists
+        return Button {
+            appEnvironment?.navigationCoordinator.navigate(to: .playlists)
+        } label: {
+            HomeShortcutCardView(
+                icon: "list.bullet.rectangle",
+                title: AppLocalization.string("home.playlists.title"),
+                count: countValue(state),
+                subtitle: formatCount(state, singular: "home.count.playlist", plural: "home.count.playlists"),
+                showsCount: state.value != nil,
+                colorfulColor: HomeShortcutItem.playlists.cardColor
+            )
+        }
+        #if os(tvOS)
+        .buttonStyle(TVHomeCardButtonStyle())
+        #else
+        .buttonStyle(.plain)
+        #endif
+        .accessibilityIdentifier("home.shortcut.playlists")
+    }
+
+    private var bookmarksShortcutCard: some View {
+        let state = localStatistics.bookmarks
+        return Button {
+            appEnvironment?.navigationCoordinator.navigate(to: .bookmarks)
+        } label: {
+            HomeShortcutCardView(
+                icon: "bookmark",
+                title: AppLocalization.string("home.bookmarks.title"),
+                count: countValue(state),
+                subtitle: formatCount(state, singular: "home.count.bookmark", plural: "home.count.bookmarks"),
+                showsCount: state.value != nil,
+                colorfulColor: HomeShortcutItem.bookmarks.cardColor
+            )
+        }
+        #if os(tvOS)
+        .buttonStyle(TVHomeCardButtonStyle())
+        #else
+        .buttonStyle(.plain)
+        #endif
+        .accessibilityIdentifier("home.shortcut.bookmarks")
+    }
+
+    private var continueWatchingShortcutCard: some View {
+        let state = localStatistics.continueWatching
+        return Button {
+            appEnvironment?.navigationCoordinator.navigate(to: .continueWatching)
+        } label: {
+            HomeShortcutCardView(
+                icon: "play.circle",
+                title: AppLocalization.string("home.shortcut.continueWatching"),
+                count: countValue(state),
+                subtitle: formatCount(state, singular: "home.count.video", plural: "home.count.videos"),
+                showsCount: state.value != nil,
+                colorfulColor: HomeShortcutItem.continueWatching.cardColor
+            )
+        }
+        #if os(tvOS)
+        .buttonStyle(TVHomeCardButtonStyle())
+        #else
+        .buttonStyle(.plain)
+        #endif
+        .accessibilityIdentifier("home.shortcut.continueWatching")
+    }
+
+    private var historyShortcutCard: some View {
+        let state = localStatistics.history
+        return Button {
+            appEnvironment?.navigationCoordinator.navigate(to: .history)
+        } label: {
+            HomeShortcutCardView(
+                icon: "clock",
+                title: AppLocalization.string("home.history.title"),
+                count: countValue(state),
+                subtitle: formatCount(state, singular: "home.count.video", plural: "home.count.videos"),
+                showsCount: state.value != nil,
+                colorfulColor: HomeShortcutItem.history.cardColor
+            )
+        }
+        #if os(tvOS)
+        .buttonStyle(TVHomeCardButtonStyle())
+        #else
+        .buttonStyle(.plain)
+        #endif
+        .accessibilityIdentifier("home.shortcut.history")
+    }
+
+    #if !os(tvOS)
+    private var downloadsShortcutCard: some View {
+        let count = downloadManager?.completedDownloads.count ?? 0
+        return Button {
+            appEnvironment?.navigationCoordinator.navigate(to: .downloads)
+        } label: {
+            HomeShortcutCardView(
+                icon: "arrow.down.circle",
+                title: AppLocalization.string("home.downloads.title"),
+                count: count,
+                subtitle: formatCount(count, singular: "home.count.video", plural: "home.count.videos"),
+                colorfulColor: HomeShortcutItem.downloads.cardColor
+            )
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("home.shortcut.downloads")
+    }
+    #endif
+
+    private var channelsShortcutCard: some View {
+        let state = channelsCountState
+        return Button {
+            appEnvironment?.navigationCoordinator.navigate(to: .manageChannels)
+        } label: {
+            HomeShortcutCardView(
+                icon: "person.2",
+                title: AppLocalization.string("home.channels.title"),
+                count: countValue(state),
+                subtitle: formatCount(state, singular: "home.count.channel", plural: "home.count.channels"),
+                showsCount: state.value != nil,
+                colorfulColor: HomeShortcutItem.channels.cardColor
+            )
+        }
+        #if os(tvOS)
+        .buttonStyle(TVHomeCardButtonStyle())
+        #else
+        .buttonStyle(.plain)
+        #endif
+        .accessibilityIdentifier("home.shortcut.channels")
+    }
+
+    private var subscriptionsShortcutCard: some View {
+        Button {
+            appEnvironment?.navigationCoordinator.navigate(to: .subscriptionsFeed)
+        } label: {
+            HomeShortcutCardView(
+                icon: "play.square.stack",
+                title: AppLocalization.string("home.subscriptions.title"),
+                count: 0,
+                subtitle: AppLocalization.string("home.subscriptions.subtitle"),
+                showsCount: false,
+                colorfulColor: HomeShortcutItem.subscriptions.cardColor
+            )
+        }
+        #if os(tvOS)
+        .buttonStyle(TVHomeCardButtonStyle())
+        #else
+        .buttonStyle(.plain)
+        #endif
+        .accessibilityIdentifier("home.shortcut.subscriptions")
+    }
+
+    private var mediaSourcesShortcutCard: some View {
+        let mediaSourcesCount = appEnvironment?.mediaSourcesManager.enabledSources.count ?? 0
+        let instancesCount = appEnvironment?.instancesManager.enabledInstances.count ?? 0
+        let count = mediaSourcesCount + instancesCount
+        return Button {
+            appEnvironment?.navigationCoordinator.navigate(to: .mediaSources)
+        } label: {
+            HomeShortcutCardView(
+                icon: "externaldrive.connected.to.line.below",
+                title: "Sources",
+                count: count,
+                subtitle: count == 1 ? "1 source" : "\(count) sources",
+                colorfulColor: HomeShortcutItem.mediaSources.cardColor
+            )
+        }
+        #if os(tvOS)
+        .buttonStyle(TVHomeCardButtonStyle())
+        #else
+        .buttonStyle(.plain)
+        #endif
+        .accessibilityIdentifier("home.shortcut.mediaSources")
+    }
+
+    @ViewBuilder
+    private func instanceContentShortcutCard(instanceID: UUID, contentType: InstanceContentType) -> some View {
+        if let instance = appEnvironment?.instancesManager.instances.first(where: { $0.id == instanceID }),
+           instance.isEnabled {
+            Button {
+                // Navigate to InstanceBrowseView with the correct tab selected
+                appEnvironment?.navigationCoordinator.navigate(to: .instanceBrowse(instance, initialTab: contentType.toBrowseTab()))
+            } label: {
+                HomeShortcutCardView(
+                    icon: contentType.icon,
+                    title: contentType.localizedTitle,
+                    count: 0,
+                    subtitle: instance.displayName,
+                    showsCount: false,
+                    colorfulColor: HomeShortcutItem.instanceContent(instanceID: instanceID, contentType: contentType).cardColor
+                )
+            }
+            #if os(tvOS)
+            .buttonStyle(TVHomeCardButtonStyle())
+            #else
+            .buttonStyle(.plain)
+            #endif
+        }
+    }
+
+    @ViewBuilder
+    private func mediaSourceShortcutCard(sourceID: UUID) -> some View {
+        if let source = appEnvironment?.mediaSourcesManager.sources.first(where: { $0.id == sourceID }),
+           source.isEnabled {
+            Button {
+                // Navigate to MediaBrowserView at root path
+                appEnvironment?.navigationCoordinator.navigate(to: .mediaBrowser(source, path: "/"))
+            } label: {
+                HomeShortcutCardView(
+                    icon: source.type.systemImage,
+                    title: source.name,
+                    count: 0,
+                    subtitle: source.type.displayName,
+                    showsCount: false,
+                    colorfulColor: HomeShortcutItem.mediaSource(sourceID: sourceID).cardColor
+                )
+            }
+            #if os(tvOS)
+            .buttonStyle(TVHomeCardButtonStyle())
+            #else
+            .buttonStyle(.plain)
+            #endif
+        }
+    }
+
+    // MARK: - Shortcut Row Views
+
+    private var openURLShortcutRow: some View {
+        Button {
+            showingOpenLink = true
+        } label: {
+            HomeShortcutRowView(
+                icon: "link",
+                title: AppLocalization.string("home.shortcut.openURL"),
+                subtitle: ""
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var remoteControlShortcutRow: some View {
+        let isHosting = appEnvironment?.localNetworkService.isHosting ?? false
+
+        return Button {
+            showingRemoteControl = true
+        } label: {
+            HomeShortcutRowView(
+                icon: "antenna.radiowaves.left.and.right",
+                title: AppLocalization.string("home.shortcut.remoteControl"),
+                subtitle: "",
+                statusIndicator: Circle()
+                    .fill(isHosting ? Color.green : Color.red)
+                    .frame(width: 8, height: 8)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var playlistsShortcutRow: some View {
+        let state = localStatistics.playlists
+        return Button {
+            appEnvironment?.navigationCoordinator.navigate(to: .playlists)
+        } label: {
+            HomeShortcutRowView(
+                icon: "list.bullet.rectangle",
+                title: AppLocalization.string("home.playlists.title"),
+                subtitle: formatCount(state, singular: "home.count.playlist", plural: "home.count.playlists")
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var bookmarksShortcutRow: some View {
+        let state = localStatistics.bookmarks
+        return Button {
+            appEnvironment?.navigationCoordinator.navigate(to: .bookmarks)
+        } label: {
+            HomeShortcutRowView(
+                icon: "bookmark.fill",
+                title: AppLocalization.string("home.bookmarks.title"),
+                subtitle: formatCount(state, singular: "home.count.bookmark", plural: "home.count.bookmarks")
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var continueWatchingShortcutRow: some View {
+        let state = localStatistics.continueWatching
+        return Button {
+            appEnvironment?.navigationCoordinator.navigate(to: .continueWatching)
+        } label: {
+            HomeShortcutRowView(
+                icon: "play.circle",
+                title: AppLocalization.string("home.shortcut.continueWatching"),
+                subtitle: formatCount(state, singular: "home.count.video", plural: "home.count.videos")
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var historyShortcutRow: some View {
+        let state = localStatistics.history
+        return Button {
+            appEnvironment?.navigationCoordinator.navigate(to: .history)
+        } label: {
+            HomeShortcutRowView(
+                icon: "clock",
+                title: AppLocalization.string("home.history.title"),
+                subtitle: formatCount(state, singular: "home.count.video", plural: "home.count.videos")
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    #if !os(tvOS)
+    private var downloadsShortcutRow: some View {
+        let count = downloadManager?.completedDownloads.count ?? 0
+        return Button {
+            appEnvironment?.navigationCoordinator.navigate(to: .downloads)
+        } label: {
+            HomeShortcutRowView(
+                icon: "arrow.down.circle",
+                title: AppLocalization.string("home.downloads.title"),
+                subtitle: formatCount(count, singular: "home.count.video", plural: "home.count.videos")
+            )
+        }
+        .buttonStyle(.plain)
+    }
+    #endif
+
+    private var channelsShortcutRow: some View {
+        let state = channelsCountState
+        return Button {
+            appEnvironment?.navigationCoordinator.navigate(to: .manageChannels)
+        } label: {
+            HomeShortcutRowView(
+                icon: "person.2",
+                title: AppLocalization.string("home.channels.title"),
+                subtitle: formatCount(state, singular: "home.count.channel", plural: "home.count.channels")
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var subscriptionsShortcutRow: some View {
+        Button {
+            appEnvironment?.navigationCoordinator.navigate(to: .subscriptionsFeed)
+        } label: {
+            HomeShortcutRowView(
+                icon: "play.rectangle.on.rectangle",
+                title: AppLocalization.string("home.subscriptions.title"),
+                subtitle: AppLocalization.string("home.subscriptions.subtitle")
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var mediaSourcesShortcutRow: some View {
+        let mediaSourcesCount = appEnvironment?.mediaSourcesManager.enabledSources.count ?? 0
+        let instancesCount = appEnvironment?.instancesManager.enabledInstances.count ?? 0
+        let count = mediaSourcesCount + instancesCount
+        return Button {
+            appEnvironment?.navigationCoordinator.navigate(to: .mediaSources)
+        } label: {
+            HomeShortcutRowView(
+                icon: "externaldrive.connected.to.line.below",
+                title: "Sources",
+                subtitle: count == 1 ? "1 source" : "\(count) sources"
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    @ViewBuilder
+    private func instanceContentShortcutRow(instanceID: UUID, contentType: InstanceContentType) -> some View {
+        if let instance = appEnvironment?.instancesManager.instances.first(where: { $0.id == instanceID }),
+           instance.isEnabled {
+            Button {
+                appEnvironment?.navigationCoordinator.navigate(to: .instanceBrowse(instance, initialTab: contentType.toBrowseTab()))
+            } label: {
+                HomeShortcutRowView(
+                    icon: contentType.icon,
+                    title: contentType.localizedTitle,
+                    subtitle: instance.displayName
+                )
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    @ViewBuilder
+    private func mediaSourceShortcutRow(sourceID: UUID) -> some View {
+        if let source = appEnvironment?.mediaSourcesManager.sources.first(where: { $0.id == sourceID }),
+           source.isEnabled {
+            Button {
+                appEnvironment?.navigationCoordinator.navigate(to: .mediaBrowser(source, path: "/"))
+            } label: {
+                HomeShortcutRowView(
+                    icon: source.type.systemImage,
+                    title: source.name,
+                    subtitle: source.type.displayName
+                )
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    /// Formats a count with compact notation and proper singular/plural form.
+    private func formatCount(_ count: Int, singular: String.LocalizationValue, plural: String.LocalizationValue) -> String {
+        let formattedCount = CountFormatter.compact(count)
+        let key = count == 1 ? singular : plural
+        return AppLocalization.string("\(formattedCount) \(AppLocalization.string(key))")
+    }
+
+    private func formatCount(
+        _ state: LocalCountState,
+        singular: String.LocalizationValue,
+        plural: String.LocalizationValue
+    ) -> String {
+        switch state {
+        case .notLoaded:
+            AppLocalization.string("common.loading")
+        case .value(let count):
+            formatCount(count, singular: singular, plural: plural)
+        case .error:
+            AppLocalization.string("common.error")
+        }
+    }
+
+    private func countValue(_ state: LocalCountState) -> Int {
+        state.value ?? 0
+    }
+    
+    // MARK: - Queue Support
+    
+    /// Queue source for recent bookmarks section
+    private var recentBookmarksQueueSource: QueueSource { .manual }
+    
+    /// Queue source for continue watching section
+    private var continueWatchingQueueSource: QueueSource { .manual }
+    
+    /// Queue source for recent history section
+    private var recentHistoryQueueSource: QueueSource { .manual }
+    
+    /// Queue source for feed section
+    private var feedQueueSource: QueueSource { .subscriptions(continuation: nil) }
+    
+    /// Returns queue source for instance content
+    private func instanceQueueSource(instanceID: UUID, contentType: InstanceContentType) -> QueueSource {
+        .manual
+    }
+    
+    /// Stub callback for recent bookmarks queue continuation
+    @Sendable
+    private func loadMoreRecentBookmarksCallback() async throws -> ([Video], String?) {
+        return ([], nil)  // No pagination for Home sections
+    }
+    
+    /// Stub callback for continue watching queue continuation
+    @Sendable
+    private func loadMoreContinueWatchingCallback() async throws -> ([Video], String?) {
+        return ([], nil)  // No pagination for Home sections
+    }
+    
+    /// Stub callback for recent history queue continuation
+    @Sendable
+    private func loadMoreRecentHistoryCallback() async throws -> ([Video], String?) {
+        return ([], nil)  // No pagination for Home sections
+    }
+    
+    /// Stub callback for feed queue continuation
+    @Sendable
+    private func loadMoreFeedCallback() async throws -> ([Video], String?) {
+        return ([], nil)  // Feed section doesn't paginate
+    }
+    
+    /// Stub callback for instance content queue continuation
+    @Sendable
+    private func loadMoreInstanceContentCallback() async throws -> ([Video], String?) {
+        return ([], nil)  // No pagination for Home sections
+    }
+    
+    #if !os(tvOS)
+    /// Stub callback for recent downloads queue continuation
+    @Sendable
+    private func loadMoreRecentDownloadsCallback() async throws -> ([Video], String?) {
+        return ([], nil)  // No pagination for Home sections
+    }
+    #endif
+
+    // MARK: - Sections
+
+    @ViewBuilder
+    private func sectionView(for section: HomeSectionItem) -> some View {
+        switch section {
+        case .continueWatching:
+            if !recentContinueWatching.isEmpty {
+                continueWatchingSection
+            }
+        case .feed:
+            if !feedCache.videos.isEmpty {
+                feedSection
+            }
+        case .bookmarks:
+            if !recentBookmarks.isEmpty {
+                bookmarksSection
+            }
+        case .history:
+            if !recentHistory.isEmpty {
+                historySection
+            }
+        case .downloads:
+            #if !os(tvOS)
+            if let downloads = downloadManager?.completedDownloads, !downloads.isEmpty {
+                downloadsSection(downloads: downloads)
+            }
+            #else
+            EmptyView()
+            #endif
+        case .instanceContent(let instanceID, let contentType):
+            instanceContentSection(instanceID: instanceID, contentType: contentType)
+        case .mediaSource:
+            // Media sources are shortcuts-only; any legacy media-source section is
+            // stripped by removeAllHomeMediaSourceSections() on load, so this is
+            // unreachable in practice. Rendered as empty for defense-in-depth.
+            EmptyView()
+        }
+    }
+
+    private var continueWatchingSection: some View {
+        let limitedEntries = Array(recentContinueWatching.prefix(sectionItemsLimit))
+        let videoList = limitedEntries.map { $0.toVideo() }
+
+        return VStack(alignment: .leading, spacing: 0) {
+            sectionHeader(title: "home.section.continueWatching") {
+                appEnvironment?.navigationCoordinator.navigate(to: .continueWatching)
+            }
+
+            if sectionLayout != .list {
+                HomeContinueWatchingHorizontalCards(
+                    entries: limitedEntries,
+                    queueSource: continueWatchingQueueSource,
+                    sourceLabel: AppLocalization.string("queue.source.continueWatching"),
+                    layout: sectionLayout,
+                    loadMoreVideos: loadMoreContinueWatchingCallback
+                )
+            } else {
+            VideoListContent(listStyle: listStyle) {
+                ForEach(Array(limitedEntries.enumerated()), id: \.element.videoIdentifier) { index, entry in
+                    VideoListRow(
+                        isLast: index == limitedEntries.count - 1,
+                        rowStyle: .regular,
+                        listStyle: listStyle
+                    ) {
+                        WatchEntryRowView(
+                            entry: entry,
+                            onRemove: {
+                                dataManager?.removeFromHistory(videoID: entry.videoID)
+                            },
+                            queueSource: continueWatchingQueueSource,
+                            sourceLabel: AppLocalization.string("queue.source.continueWatching"),
+                            videoList: videoList,
+                            videoIndex: index,
+                            loadMoreVideos: loadMoreContinueWatchingCallback
+                        )
+                    }
+                    #if !os(tvOS)
+                    .videoSwipeActions(
+                        video: videoList[index],
+                        fixedActions: [
+                            SwipeAction(
+                                symbolImage: "trash.fill",
+                                tint: .white,
+                                background: .red
+                            ) { reset in
+                                dataManager?.removeFromHistory(videoID: entry.videoID)
+                                reset()
+                            }
+                        ]
+                    )
+                    #endif
+                }
+            }
+            }
+        }
+    }
+
+    private var feedSection: some View {
+        let limitedVideos = Array(feedCache.videos.prefix(sectionItemsLimit))
+
+        return VStack(alignment: .leading, spacing: 0) {
+            sectionHeader(title: "home.recentFeed.title") {
+                appEnvironment?.navigationCoordinator.navigate(to: .subscriptionsFeed)
+            }
+
+            if sectionLayout != .list {
+                HomeHorizontalCards(
+                    videos: limitedVideos,
+                    queueSource: feedQueueSource,
+                    sourceLabel: AppLocalization.string("queue.source.subscriptions"),
+                    layout: sectionLayout,
+                    loadMoreVideos: loadMoreFeedCallback
+                )
+            } else {
+                VideoListContent(listStyle: listStyle) {
+                    ForEach(Array(limitedVideos.enumerated()), id: \.element.id) { index, video in
+                        VideoListRow(
+                            isLast: index == limitedVideos.count - 1,
+                            rowStyle: .regular,
+                            listStyle: listStyle
+                        ) {
+                            VideoRowView(video: video, style: .regular)
+                                .tappableVideo(
+                                    video,
+                                    queueSource: feedQueueSource,
+                                    sourceLabel: AppLocalization.string("queue.source.subscriptions"),
+                                    videoList: limitedVideos,
+                                    videoIndex: index,
+                                    loadMoreVideos: loadMoreFeedCallback
+                                )
+                        }
+                        #if !os(tvOS)
+                        .videoSwipeActions(video: video)
+                        #endif
+                    }
+                }
+            }
+        }
+    }
+
+    private var bookmarksSection: some View {
+        let limitedBookmarks = Array(recentBookmarks.prefix(sectionItemsLimit))
+        let videoList = limitedBookmarks.map { $0.toVideo() }
+
+        return VStack(alignment: .leading, spacing: 0) {
+            sectionHeader(title: "home.recentBookmarks.title") {
+                appEnvironment?.navigationCoordinator.navigate(to: .bookmarks)
+            }
+
+            if sectionLayout != .list {
+                HomeHorizontalCards(
+                    videos: videoList,
+                    queueSource: recentBookmarksQueueSource,
+                    sourceLabel: AppLocalization.string("queue.source.bookmarks"),
+                    layout: sectionLayout,
+                    loadMoreVideos: loadMoreRecentBookmarksCallback
+                )
+            } else {
+            VideoListContent(listStyle: listStyle) {
+                ForEach(Array(limitedBookmarks.enumerated()), id: \.element.videoID) { index, bookmark in
+                    VideoListRow(
+                        isLast: index == limitedBookmarks.count - 1,
+                        rowStyle: .regular,
+                        listStyle: listStyle
+                    ) {
+                        BookmarkRowView(
+                            bookmark: bookmark,
+                            onRemove: {
+                                dataManager?.removeBookmark(for: bookmark.videoID)
+                            },
+                            queueSource: recentBookmarksQueueSource,
+                            sourceLabel: AppLocalization.string("queue.source.bookmarks"),
+                            videoList: videoList,
+                            videoIndex: index,
+                            loadMoreVideos: loadMoreRecentBookmarksCallback
+                        )
+                    }
+                    #if !os(tvOS)
+                    .videoSwipeActions(
+                        video: videoList[index],
+                        fixedActions: [
+                            SwipeAction(
+                                symbolImage: "trash.fill",
+                                tint: .white,
+                                background: .red
+                            ) { reset in
+                                dataManager?.removeBookmark(for: bookmark.videoID)
+                                reset()
+                            }
+                        ]
+                    )
+                    #endif
+                }
+            }
+            }
+        }
+    }
+
+    private var historySection: some View {
+        let limitedHistory = Array(recentHistory.prefix(sectionItemsLimit))
+        let videoList = limitedHistory.map { $0.toVideo() }
+
+        return VStack(alignment: .leading, spacing: 0) {
+            sectionHeader(title: "home.recentHistory.title") {
+                appEnvironment?.navigationCoordinator.navigate(to: .history)
+            }
+
+            if sectionLayout != .list {
+                HomeHorizontalCards(
+                    videos: videoList,
+                    queueSource: recentHistoryQueueSource,
+                    sourceLabel: AppLocalization.string("queue.source.history"),
+                    layout: sectionLayout,
+                    loadMoreVideos: loadMoreRecentHistoryCallback
+                )
+            } else {
+            VideoListContent(listStyle: listStyle) {
+                ForEach(Array(limitedHistory.enumerated()), id: \.element.videoID) { index, entry in
+                    VideoListRow(
+                        isLast: index == limitedHistory.count - 1,
+                        rowStyle: .regular,
+                        listStyle: listStyle
+                    ) {
+                        WatchEntryRowView(
+                            entry: entry,
+                            onRemove: {
+                                dataManager?.removeFromHistory(videoID: entry.videoID)
+                            },
+                            queueSource: recentHistoryQueueSource,
+                            sourceLabel: AppLocalization.string("queue.source.history"),
+                            videoList: videoList,
+                            videoIndex: index,
+                            loadMoreVideos: loadMoreRecentHistoryCallback
+                        )
+                    }
+                    #if !os(tvOS)
+                    .videoSwipeActions(
+                        video: videoList[index],
+                        fixedActions: [
+                            SwipeAction(
+                                symbolImage: "trash.fill",
+                                tint: .white,
+                                background: .red
+                            ) { reset in
+                                dataManager?.removeFromHistory(videoID: entry.videoID)
+                                reset()
+                            }
+                        ]
+                    )
+                    #endif
+                }
+            }
+            }
+        }
+    }
+
+    #if !os(tvOS)
+    private func downloadsSection(downloads: [Download]) -> some View {
+        let limitedDownloads = Array(downloads.prefix(sectionItemsLimit))
+        // Use toVideo() instead of videoAndStream() to avoid O(n²) file I/O on main thread
+        // Downloads are looked up by video.id at playback time in PlayerService.playPreferringDownloaded()
+        let downloadsDir = downloadManager?.downloadsDirectory()
+        let videoList = limitedDownloads.map { $0.toVideo(downloadsDirectory: downloadsDir) }
+
+        return VStack(alignment: .leading, spacing: 0) {
+            sectionHeader(title: "home.recentDownloads.title") {
+                appEnvironment?.navigationCoordinator.navigate(to: .downloads)
+            }
+
+            if sectionLayout != .list {
+                HomeHorizontalCards(
+                    videos: videoList,
+                    queueSource: .manual,
+                    sourceLabel: AppLocalization.string("queue.source.downloads"),
+                    layout: sectionLayout,
+                    loadMoreVideos: loadMoreRecentDownloadsCallback
+                )
+            } else {
+            VideoListContent(listStyle: listStyle) {
+                ForEach(Array(limitedDownloads.enumerated()), id: \.element.id) { index, download in
+                    VideoListRow(
+                        isLast: index == limitedDownloads.count - 1,
+                        rowStyle: .regular,
+                        listStyle: listStyle
+                    ) {
+                        DownloadRowView(
+                            download: download,
+                            isActive: false,
+                            queueSource: .manual,
+                            sourceLabel: AppLocalization.string("queue.source.downloads"),
+                            videoList: videoList,
+                            videoIndex: index,
+                            loadMoreVideos: loadMoreRecentDownloadsCallback
+                        )
+                    }
+                    .videoSwipeActions(
+                        video: videoList[index],
+                        fixedActions: [
+                            SwipeAction(
+                                symbolImage: "trash.fill",
+                                tint: .white,
+                                background: .red
+                            ) { reset in
+                                Task {
+                                    await downloadManager?.delete(download)
+                                }
+                                reset()
+                            }
+                        ]
+                    )
+                }
+            }
+            }
+        }
+    }
+    #endif
+
+    @ViewBuilder
+    private func instanceContentSection(instanceID: UUID, contentType: InstanceContentType) -> some View {
+        // Only show if instance is enabled and has cached videos
+        if let instance = appEnvironment?.instancesManager.instances.first(where: { $0.id == instanceID }),
+           instance.isEnabled,
+           let videos = appEnvironment?.homeInstanceCache.videos(for: instanceID, contentType: contentType),
+           !videos.isEmpty {
+            let limitedVideos = Array(videos.prefix(sectionItemsLimit))
+
+            VStack(alignment: .leading, spacing: 0) {
+                Group {
+                    #if os(tvOS)
+                    Text(verbatim: "\(contentType.localizedTitle) - \(instance.displayName)")
+                        .fontWeight(.semibold)
+                        .foregroundStyle(accentColor)
+                    #else
+                    Button {
+                        appEnvironment?.navigationCoordinator.navigate(
+                            to: .instanceBrowse(instance, initialTab: contentType.toBrowseTab())
+                        )
+                    } label: {
+                        HStack(spacing: 4) {
+                            Text(verbatim: "\(contentType.localizedTitle) - \(instance.displayName)")
+                                .fontWeight(.semibold)
+                            Image(systemName: "chevron.right")
+                                .font(.caption)
+                        }
+                        .foregroundStyle(accentColor)
+                    }
+                    .buttonStyle(.plain)
+                    #endif
+                }
+                .padding(.horizontal, listStyle == .inset ? 32 : 16)
+                .padding(.top, 16)
+                #if os(tvOS)
+                .padding(.bottom, 24)
+                #else
+                .padding(.bottom, 8)
+                #endif
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                if sectionLayout != .list {
+                    HomeHorizontalCards(
+                        videos: limitedVideos,
+                        queueSource: instanceQueueSource(instanceID: instanceID, contentType: contentType),
+                        sourceLabel: contentType.localizedTitle,
+                        layout: sectionLayout,
+                        loadMoreVideos: loadMoreInstanceContentCallback
+                    )
+                } else {
+                    VideoListContent(listStyle: listStyle) {
+                        ForEach(Array(limitedVideos.enumerated()), id: \.element.id) { index, video in
+                            VideoListRow(
+                                isLast: index == limitedVideos.count - 1,
+                                rowStyle: .regular,
+                                listStyle: listStyle
+                            ) {
+                                VideoRowView(video: video, style: .regular)
+                                    .tappableVideo(
+                                        video,
+                                        queueSource: instanceQueueSource(instanceID: instanceID, contentType: contentType),
+                                        sourceLabel: contentType.localizedTitle,
+                                        videoList: limitedVideos,
+                                        videoIndex: index,
+                                        loadMoreVideos: loadMoreInstanceContentCallback
+                                    )
+                            }
+                            #if !os(tvOS)
+                            .videoSwipeActions(video: video)
+                            #endif
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - Data Loading
+
+    private func requestDataReload(_ scope: DataReloadScope = .full) {
+        pendingDataReload.formUnion(scope)
+        dataReloadGeneration &+= 1
+    }
+
+    private func loadData(_ scope: DataReloadScope) {
+        if scope.contains(.playlists) {
+            loadPlaylistsData()
+        }
+        if scope.contains(.bookmarks) {
+            loadBookmarksData()
+        }
+        if scope.contains(.history) {
+            loadHistorySectionsData()
+        }
+        if scope.contains(.channels) {
+            loadChannelsData()
+        }
+        if scope.contains(.visibility) {
+            loadRemoteDevicesData()
+            cleanupOrphanedHomeInstanceItems()
+            cleanupOrphanedHomeMediaSourceItems()
+            // Media sources are shortcuts-only; drop any legacy media-source sections.
+            appEnvironment?.settingsManager.removeAllHomeMediaSourceSections()
+        }
+    }
+
+    private func cleanupOrphanedHomeInstanceItems() {
+        guard let instancesManager = appEnvironment?.instancesManager,
+              let settingsManager = appEnvironment?.settingsManager else { return }
+
+        let validIDs = Set(instancesManager.instances.map(\.id))
+        settingsManager.cleanupOrphanedHomeInstanceItems(validInstanceIDs: validIDs)
+    }
+
+    private func cleanupOrphanedHomeMediaSourceItems() {
+        guard let mediaSourcesManager = appEnvironment?.mediaSourcesManager,
+              let settingsManager = appEnvironment?.settingsManager else { return }
+
+        let validIDs = Set(mediaSourcesManager.sources.map(\.id))
+        settingsManager.cleanupOrphanedHomeMediaSourceItems(validSourceIDs: validIDs)
+    }
+
+    private func loadPlaylistsData() {
+        playlists = dataManager?.playlists() ?? []
+    }
+
+    private func loadBookmarksData() {
+        recentBookmarks = dataManager?.bookmarks(limit: 50) ?? []
+    }
+
+    private func loadHistorySectionsData() {
+        let allHistory = dataManager?.watchHistory(limit: 100) ?? []
+        loadContinueWatchingData(from: allHistory)
+        loadHistoryData(from: allHistory)
+    }
+
+    private func loadContinueWatchingData(from history: [WatchEntry]? = nil) {
+        let allHistory = history ?? dataManager?.watchHistory(limit: 100) ?? []
+        // Filter to in-progress only (same logic as ContinueWatchingView)
+        recentContinueWatching = allHistory.filter { !$0.isFinished && !$0.isLive && $0.watchedSeconds > 10 }
+    }
+
+    private func loadHistoryData(from history: [WatchEntry]? = nil) {
+        if let history {
+            recentHistory = Array(history.prefix(50))
+        } else {
+            recentHistory = dataManager?.watchHistory(limit: 50) ?? []
+        }
+    }
+
+    private func loadChannelsData() {
+        guard let service = appEnvironment?.subscriptionService else {
+            remoteChannelsCount = .notLoaded
+            return
+        }
+
+        guard service.currentAccountType != .local else { return }
+
+        // Server-account counts remain explicitly unknown until their existing
+        // provider cache is available. This fetch is provider content loading,
+        // not a network request introduced for local counters.
+        if let cached = service.cachedSubscriptionCount {
+            remoteChannelsCount = .value(cached)
+        } else {
+            remoteChannelsCount = .notLoaded
+            Task {
+                do {
+                    let channels = try await service.fetchSubscriptions()
+                    remoteChannelsCount = .value(channels.count)
+                } catch {
+                    remoteChannelsCount = .error
+                }
+            }
+        }
+    }
+
+    private func loadRemoteDevicesData() {
+        discoveredDevicesCount = appEnvironment?.remoteControlCoordinator.discoveredDevices.count ?? 0
+    }
+
+    /// Refreshes Home instance content sections from network if cache is stale.
+    /// Only refreshes enabled instance content sections (Popular/Trending/Feed).
+    private func refreshHomeInstanceContent() async {
+        guard let appEnvironment else { return }
+
+        // Get all visible instance content sections from settings
+        let visibleSections = presentationSettings?.visibleSections ?? []
+        var sectionsToRefresh: [(instanceID: UUID, contentType: InstanceContentType)] = []
+
+        for section in visibleSections {
+            if case .instanceContent(let instanceID, let contentType) = section {
+                // Refresh if cache is stale
+                if !appEnvironment.homeInstanceCache.isCacheValid(for: instanceID, contentType: contentType) {
+                    sectionsToRefresh.append((instanceID, contentType))
+                }
+            }
+        }
+
+        await appEnvironment.homeInstanceCache.refresh(
+            sections: sectionsToRefresh,
+            using: appEnvironment
+        )
+    }
+}
+
+// MARK: - Preview
+
+#Preview {
+    NavigationStack {
+        HomeView()
+    }
+    .appEnvironment(.preview)
+}
