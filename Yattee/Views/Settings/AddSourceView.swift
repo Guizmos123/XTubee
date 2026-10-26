@@ -185,6 +185,24 @@ struct AddSourceView: View {
                 NavigationLink {
                     #if os(tvOS)
                     TVSidebarDetailContainer(
+                        systemImage: "play.tv",
+                        title: AppLocalization.string("sources.addIPTVServer")
+                    ) {
+                        AddIPTVSourceView(dismissSheet: dismiss)
+                    }
+                    #else
+                    AddIPTVSourceView(dismissSheet: dismiss)
+                    #endif
+                } label: {
+                    Label(AppLocalization.string("sources.addIPTVServer"), systemImage: "play.tv")
+                    #if os(tvOS)
+                        .labelStyle(TVSourceRowLabelStyle())
+                    #endif
+                }
+
+                NavigationLink {
+                    #if os(tvOS)
+                    TVSidebarDetailContainer(
                         systemImage: "globe",
                         title: AppLocalization.string("sources.browsePeerTube")
                     ) {

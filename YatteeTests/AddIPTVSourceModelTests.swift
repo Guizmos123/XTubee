@@ -77,7 +77,7 @@ struct AddIPTVSourceModelTests {
         await model.verify()
 
         #expect(validationCalls == 0)
-        #expect(model.state == .failure("Enter a valid HTTP or HTTPS Xtream server URL."))
+        #expect(model.state == .failure(AppLocalization.string("sources.iptv.error.invalidURL")))
     }
 
     @Test("Editing fields invalidates a successful validation")

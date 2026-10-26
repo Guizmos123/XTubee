@@ -11,11 +11,14 @@ struct SourcesListView: View {
     @Environment(\.appEnvironment) private var appEnvironment
     @State private var showingAddSheet = false
     @State private var sourceToEdit: UnifiedSource?
+    @State private var selectedIPTVSource: IPTVSource?
+    @State private var iptvSourceToEdit: IPTVSource?
 
     // Delete confirmation state
     @State private var showingDeleteConfirmation = false
     @State private var pendingDeleteInstance: Instance?
     @State private var pendingDeleteSource: MediaSource?
+    @State private var pendingDeleteIPTVSource: IPTVSource?
 
     #if os(tvOS)
     @FocusState private var firstSourceFocused: Bool
@@ -29,12 +32,17 @@ struct SourcesListView: View {
         appEnvironment?.mediaSourcesManager
     }
 
+    private var iptvSourcesManager: IPTVSourcesManager? {
+        appEnvironment?.iptvSourcesManager
+    }
+
     private var listStyle: VideoListStyle {
         appEnvironment?.settingsManager.listStyle ?? .inset
     }
 
     private var isEmpty: Bool {
         (instancesManager?.instances.isEmpty ?? true) &&
+        (iptvSourcesManager?.sources.isEmpty ?? true) &&
         (mediaSourcesManager?.isEmpty ?? true)
     }
 
@@ -116,6 +124,27 @@ struct SourcesListView: View {
             EditSourceView(source: source)
         }
         #endif
+        #if os(tvOS)
+        .navigationDestination(item: $selectedIPTVSource) { source in
+            TVSidebarDetailContainer(
+                systemImage: "play.tv",
+                title: AppLocalization.string("sources.iptv.detail.title")
+            ) {
+                IPTVSourceDetailView(sourceID: source.id)
+            }
+        }
+        #else
+        .sheet(item: $selectedIPTVSource) { source in
+            NavigationStack {
+                IPTVSourceDetailView(sourceID: source.id)
+            }
+        }
+        .sheet(item: $iptvSourceToEdit) { source in
+            NavigationStack {
+                AddIPTVSourceView(editingSource: source)
+            }
+        }
+        #endif
         .confirmationDialog(
             deleteConfirmationMessage,
             isPresented: $showingDeleteConfirmation,
@@ -127,6 +156,7 @@ struct SourcesListView: View {
             Button(AppLocalization.string("common.cancel"), role: .cancel) {
                 pendingDeleteInstance = nil
                 pendingDeleteSource = nil
+                pendingDeleteIPTVSource = nil
             }
         }
         #if !os(tvOS)
@@ -210,6 +240,7 @@ struct SourcesListView: View {
                 ScrollView {
                     LazyVStack(spacing: 0) {
                         remoteServersSection
+                        iptvServersSection
                         fileSourcesSection
                     }
                 }
@@ -221,6 +252,154 @@ struct SourcesListView: View {
                 }
             }
             #endif
+    }
+
+    // MARK: - IPTV Servers Section
+
+    @ViewBuilder
+    private var iptvServersSection: some View {
+        if let manager = iptvSourcesManager, !manager.sources.isEmpty {
+            sectionHeader(AppLocalization.string("sources.section.iptvServers"))
+
+            let sources = manager.sources.sorted { $0.dateAdded < $1.dateAdded }
+            let noYouTubeServers = instancesManager?.instances.isEmpty ?? true
+
+            sectionCard {
+                ForEach(Array(sources.enumerated()), id: \.element.id) { index, source in
+                    let isLast = index == sources.count - 1
+                    iptvSourceRowView(
+                        source,
+                        isLast: isLast,
+                        isFirst: noYouTubeServers && index == 0
+                    )
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func iptvSourceRowView(
+        _ source: IPTVSource,
+        isLast: Bool,
+        isFirst: Bool = false
+    ) -> some View {
+        #if os(tvOS)
+        SourceListRow(isLast: isLast, listStyle: listStyle) {
+            Button {
+                selectedIPTVSource = source
+            } label: {
+                iptvSourceRow(source)
+            }
+            .foregroundStyle(.primary)
+        }
+        .modifier(FirstRowFocusModifier(isFirst: isFirst, focus: $firstSourceFocused))
+        #else
+        SourceListRow(isLast: isLast, listStyle: listStyle) {
+            Button {
+                selectedIPTVSource = source
+            } label: {
+                iptvSourceRow(source)
+            }
+            #if os(macOS)
+            .buttonStyle(.plain)
+            #else
+            .foregroundStyle(.primary)
+            #endif
+        }
+        .swipeActions(actionsArray: iptvSwipeActions(for: source))
+        .contextMenu {
+            if iptvSourcesManager?.activeSourceID != source.id {
+                Button {
+                    setActiveIPTVSource(source)
+                } label: {
+                    Label(AppLocalization.string("sources.iptv.action.setActive"), systemImage: "checkmark.circle")
+                }
+            }
+
+            Button(role: .destructive) {
+                pendingDeleteIPTVSource = source
+                showingDeleteConfirmation = true
+            } label: {
+                Label(AppLocalization.string("common.delete"), systemImage: "trash")
+            }
+        }
+        #endif
+    }
+
+    private func iptvSwipeActions(for source: IPTVSource) -> [SwipeAction] {
+        [
+            SwipeAction(symbolImage: "pencil", tint: .white, background: .blue) { reset in
+                iptvSourceToEdit = source
+                reset()
+            },
+            SwipeAction(symbolImage: "trash", tint: .white, background: .red) { reset in
+                pendingDeleteIPTVSource = source
+                showingDeleteConfirmation = true
+                reset()
+            }
+        ]
+    }
+
+    private func iptvSourceRow(_ source: IPTVSource) -> some View {
+        #if os(tvOS)
+        let rowSpacing: CGFloat = 24
+        #else
+        let rowSpacing: CGFloat = 12
+        #endif
+        #if os(macOS)
+        let iconFont: Font = .title3
+        let iconFrameWidth: CGFloat = 24
+        let titleFont: Font = .body
+        #else
+        let iconFont: Font = .title2
+        let iconFrameWidth: CGFloat = 32
+        let titleFont: Font = .headline
+        #endif
+        let isActive = iptvSourcesManager?.activeSourceID == source.id
+
+        return HStack(spacing: rowSpacing) {
+            Image(systemName: "play.tv")
+                .font(iconFont)
+                .foregroundStyle(.tint)
+                .frame(width: iconFrameWidth)
+
+            VStack(alignment: .leading, spacing: 2) {
+                HStack {
+                    Text(source.name)
+                        .font(titleFont)
+                        .foregroundStyle(.primary)
+
+                    if isActive {
+                        Text(AppLocalization.string("sources.status.active"))
+                            .font(.caption)
+                            .foregroundStyle(.tint)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(.tint.opacity(0.12))
+                            .clipShape(Capsule())
+                    }
+                }
+
+                Text("Xtream - \(source.serverURL.host ?? source.serverURL.absoluteString)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+
+            if isActive {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(.tint)
+            }
+
+            #if !os(macOS)
+            Image(systemName: "chevron.right")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+            #endif
+        }
+        .contentShape(Rectangle())
+        .accessibilityIdentifier("sources.row.iptv.\(source.id.uuidString)")
     }
 
     // MARK: - Section Header
@@ -437,13 +616,18 @@ struct SourcesListView: View {
     private var fileSourcesSection: some View {
         let allFileSources = allMediaSources
         let noRemoteServers = instancesManager?.instances.isEmpty ?? true
+        let noIPTVServers = iptvSourcesManager?.sources.isEmpty ?? true
         if !allFileSources.isEmpty {
             sectionHeader(AppLocalization.string("sources.section.fileSources"))
 
             sectionCard {
                 ForEach(Array(allFileSources.enumerated()), id: \.element.id) { index, source in
                     let isLast = index == allFileSources.count - 1
-                    fileSourceRowView(source, isLast: isLast, isFirst: noRemoteServers && index == 0)
+                    fileSourceRowView(
+                        source,
+                        isLast: isLast,
+                        isFirst: noRemoteServers && noIPTVServers && index == 0
+                    )
                 }
             }
         }
@@ -593,12 +777,38 @@ struct SourcesListView: View {
             manager.remove(source)
             pendingDeleteSource = nil
         }
+
+        if let source = pendingDeleteIPTVSource, let manager = iptvSourcesManager {
+            do {
+                try manager.remove(id: source.id)
+                pendingDeleteIPTVSource = nil
+            } catch {
+                appEnvironment?.toastManager.showError(
+                    AppLocalization.string("common.error"),
+                    subtitle: error.localizedDescription
+                )
+            }
+        }
+    }
+
+    private func setActiveIPTVSource(_ source: IPTVSource) {
+        guard iptvSourcesManager?.activeSourceID != source.id else { return }
+        do {
+            try iptvSourcesManager?.setActive(id: source.id)
+        } catch {
+            appEnvironment?.toastManager.showError(
+                AppLocalization.string("common.error"),
+                subtitle: error.localizedDescription
+            )
+        }
     }
 
     private var deleteConfirmationMessage: String {
         if let instance = pendingDeleteInstance {
             return AppLocalization.string("sources.delete.confirmation.single \(instance.displayName)")
         } else if let source = pendingDeleteSource {
+            return AppLocalization.string("sources.delete.confirmation.single \(source.name)")
+        } else if let source = pendingDeleteIPTVSource {
             return AppLocalization.string("sources.delete.confirmation.single \(source.name)")
         }
         return AppLocalization.string("sources.delete.confirmation")

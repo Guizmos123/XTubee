@@ -26566,6 +26566,23 @@
         }
       }
     },
+    "sources.addIPTVServer" : {
+      "comment" : "Menu item and form title for adding an IPTV server",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Add IPTV Server"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ajouter un serveur IPTV"
+          }
+        }
+      }
+    },
     "sources.addLocalFolder" : {
       "comment" : "Menu item to add a local folder source",
       "localizations" : {
@@ -26584,18 +26601,18 @@
       }
     },
     "sources.addRemoteServer" : {
-      "comment" : "Menu item to add a remote server source",
+      "comment" : "Menu item to add a YouTube server source",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Add Remote Server"
+            "value" : "Add YouTube Server"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ajouter un serveur distant"
+            "value" : "Ajouter un serveur YouTube"
           }
         }
       }
@@ -27773,6 +27790,406 @@
         }
       }
     },
+    "sources.iptv.action.setActive" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Set as Active"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Définir comme active"
+          }
+        }
+      }
+    },
+    "sources.iptv.action.verify" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Verify Account"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vérifier le compte"
+          }
+        }
+      }
+    },
+    "sources.iptv.detail.activeConnections" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Active Connections"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Connexions actives"
+          }
+        }
+      }
+    },
+    "sources.iptv.detail.host" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Host"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hôte"
+          }
+        }
+      }
+    },
+    "sources.iptv.detail.maxConnections" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Maximum Connections"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Connexions maximales"
+          }
+        }
+      }
+    },
+    "sources.iptv.detail.notProvided" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Not provided"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Non communiqué"
+          }
+        }
+      }
+    },
+    "sources.iptv.detail.title" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "IPTV Source"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Source IPTV"
+          }
+        }
+      }
+    },
+    "sources.iptv.detail.unavailable" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This IPTV source is no longer available."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cette source IPTV n’est plus disponible."
+          }
+        }
+      }
+    },
+    "sources.iptv.error.completeFields" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Complete all fields before verifying the account."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remplissez tous les champs avant de vérifier le compte."
+          }
+        }
+      }
+    },
+    "sources.iptv.error.credentialsUnavailable" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The local IPTV credentials are unavailable."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les identifiants IPTV locaux sont indisponibles."
+          }
+        }
+      }
+    },
+    "sources.iptv.error.invalidURL" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enter a valid HTTP or HTTPS Xtream server URL."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Saisissez une URL de serveur Xtream HTTP ou HTTPS valide."
+          }
+        }
+      }
+    },
+    "sources.iptv.error.validationFailed" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The IPTV account could not be verified."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le compte IPTV n’a pas pu être vérifié."
+          }
+        }
+      }
+    },
+    "sources.iptv.field.connections" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Connections"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Connexions"
+          }
+        }
+      }
+    },
+    "sources.iptv.field.expires" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Expires"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Expiration"
+          }
+        }
+      }
+    },
+    "sources.iptv.field.formats" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Formats"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Formats"
+          }
+        }
+      }
+    },
+    "sources.iptv.field.status" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Status"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "État"
+          }
+        }
+      }
+    },
+    "sources.iptv.footer.credentials" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Credentials remain in memory until validation and are saved locally only after you add the source."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les identifiants restent en mémoire pendant la validation et ne sont enregistrés localement qu’après l’ajout de la source."
+          }
+        }
+      }
+    },
+    "sources.iptv.edit.title" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Edit IPTV Source"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Modifier la source IPTV"
+          }
+        }
+      }
+    },
+    "sources.iptv.footer.serverURL" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Use the HTTP or HTTPS address supplied by your IPTV provider."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Utilisez l’adresse HTTP ou HTTPS fournie par votre fournisseur IPTV."
+          }
+        }
+      }
+    },
+    "sources.iptv.section.account" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Xtream Account"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Compte Xtream"
+          }
+        }
+      }
+    },
+    "sources.iptv.section.source" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Source"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Source"
+          }
+        }
+      }
+    },
+    "sources.iptv.status.ready" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ready to verify"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Prêt pour la vérification"
+          }
+        }
+      }
+    },
+    "sources.iptv.status.verified" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Account verified"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Compte vérifié"
+          }
+        }
+      }
+    },
+    "sources.iptv.status.verifying" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Verifying account…"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vérification du compte…"
+          }
+        }
+      }
+    },
+    "sources.iptv.status.verifyingShort" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Verifying…"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vérification…"
+          }
+        }
+      }
+    },
     "sources.newSource" : {
       "comment" : "Navigation title for add source view",
       "localizations" : {
@@ -27891,19 +28308,36 @@
         }
       }
     },
-    "sources.section.remoteServers" : {
-      "comment" : "Section header for remote servers in browse view",
+    "sources.section.iptvServers" : {
+      "comment" : "Section header for configured IPTV servers",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Remote Servers"
+            "value" : "IPTV Servers"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Serveurs distants"
+            "value" : "Serveurs IPTV"
+          }
+        }
+      }
+    },
+    "sources.section.remoteServers" : {
+      "comment" : "Section header for YouTube and PeerTube servers in browse view",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "YouTube Servers"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Serveurs YouTube"
           }
         }
       }
@@ -28142,6 +28576,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Trier et regrouper"
+          }
+        }
+      }
+    },
+    "sources.status.active" : {
+      "comment" : "Badge for the active IPTV source",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Active"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Active"
           }
         }
       }
@@ -32547,6 +32998,9 @@
           }
         }
       }
+    },
+    "Xtream - %@" : {
+
     },
     "XTubee" : {
 

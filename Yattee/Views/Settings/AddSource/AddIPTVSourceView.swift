@@ -81,9 +81,14 @@ final class AddIPTVSourceModel {
         state = .ready
     }
 
+    func showFailure(_ message: String) {
+        validatedInput = nil
+        state = .failure(message)
+    }
+
     func verify() async {
         guard canVerify else {
-            state = .failure("Complete all fields before verifying the account.")
+            state = .failure(AppLocalization.string("sources.iptv.error.completeFields"))
             return
         }
 
@@ -91,7 +96,7 @@ final class AddIPTVSourceModel {
         do {
             input = try normalizedInput()
         } catch {
-            state = .failure("Enter a valid HTTP or HTTPS Xtream server URL.")
+            state = .failure(AppLocalization.string("sources.iptv.error.invalidURL"))
             return
         }
 
@@ -117,7 +122,7 @@ final class AddIPTVSourceModel {
             state = .failure(error.localizedDescription)
         } catch {
             validatedInput = nil
-            state = .failure("The IPTV account could not be verified.")
+            state = .failure(AppLocalization.string("sources.iptv.error.validationFailed"))
         }
     }
 
@@ -165,39 +170,51 @@ struct AddIPTVSourceView: View {
 
     @State private var model: AddIPTVSourceModel
     @State private var validationTask: Task<Void, Never>?
+    @State private var didLoadEditingCredentials = false
+    private let dismissSheet: DismissAction?
+    private let editingSource: IPTVSource?
 
-    init(prefillName: String = "", prefillServerURL: String = "") {
+    init(
+        prefillName: String = "",
+        prefillServerURL: String = "",
+        dismissSheet: DismissAction? = nil,
+        editingSource: IPTVSource? = nil
+    ) {
+        self.dismissSheet = dismissSheet
+        self.editingSource = editingSource
         _model = State(
             initialValue: AddIPTVSourceModel(
-                prefillName: prefillName,
-                prefillServerURL: prefillServerURL
+                prefillName: editingSource?.name ?? prefillName,
+                prefillServerURL: editingSource?.serverURL.absoluteString ?? prefillServerURL
             )
         )
     }
 
     var body: some View {
-        NavigationStack {
-            Form {
-                sourceSection
-                credentialsSection
-                statusSection
-                actionSection
-            }
-            #if os(iOS)
-            .scrollDismissesKeyboard(.interactively)
-            #endif
-            #if os(macOS)
-            .formStyle(.grouped)
-            #endif
-            .reactiveNavigationTitle("Add IPTV Source")
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
-            .toolbar {
-                sheetCloseToolbarItem(identifier: "addIPTVSource.closeButton") {
-                    validationTask?.cancel()
-                    dismiss()
-                }
+        Form {
+            sourceSection
+            credentialsSection
+            statusSection
+            actionSection
+        }
+        #if os(iOS)
+        .scrollDismissesKeyboard(.interactively)
+        #endif
+        #if os(macOS)
+        .formStyle(.grouped)
+        #endif
+        .reactiveNavigationTitle(
+            AppLocalization.string(
+                editingSource == nil ? "sources.addIPTVServer" : "sources.iptv.edit.title"
+            )
+        )
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
+        .toolbar {
+            sheetCloseToolbarItem(identifier: "addIPTVSource.closeButton") {
+                validationTask?.cancel()
+                dismiss()
             }
         }
         #if os(macOS)
@@ -206,17 +223,20 @@ struct AddIPTVSourceView: View {
         .onDisappear {
             validationTask?.cancel()
         }
+        .task {
+            loadEditingCredentialsIfNeeded()
+        }
     }
 
     private var sourceSection: some View {
         Section {
-            TextField("Name", text: $model.name)
+            TextField(AppLocalization.string("sources.field.name"), text: $model.name)
                 .textContentType(.name)
                 .disabled(model.isVerifying)
                 .accessibilityIdentifier("addIPTVSource.nameField")
                 .onChange(of: model.name) { model.fieldsDidChange() }
 
-            TextField("Server URL", text: $model.serverURL)
+            TextField(AppLocalization.string("sources.field.url"), text: $model.serverURL)
                 .textContentType(.URL)
                 #if os(iOS)
                 .keyboardType(.URL)
@@ -227,15 +247,15 @@ struct AddIPTVSourceView: View {
                 .accessibilityIdentifier("addIPTVSource.urlField")
                 .onChange(of: model.serverURL) { model.fieldsDidChange() }
         } header: {
-            Text("Source")
+            Text(AppLocalization.string("sources.iptv.section.source"))
         } footer: {
-            Text("Use the HTTP or HTTPS address supplied by your IPTV provider.")
+            Text(AppLocalization.string("sources.iptv.footer.serverURL"))
         }
     }
 
     private var credentialsSection: some View {
         Section {
-            TextField("Username", text: $model.username)
+            TextField(AppLocalization.string("sources.field.username"), text: $model.username)
                 .textContentType(.username)
                 #if os(iOS)
                 .textInputAutocapitalization(.never)
@@ -245,15 +265,15 @@ struct AddIPTVSourceView: View {
                 .accessibilityIdentifier("addIPTVSource.usernameField")
                 .onChange(of: model.username) { model.fieldsDidChange() }
 
-            SecureField("Password", text: $model.password)
+            SecureField(AppLocalization.string("sources.field.password"), text: $model.password)
                 .textContentType(.password)
                 .disabled(model.isVerifying)
                 .accessibilityIdentifier("addIPTVSource.passwordField")
                 .onChange(of: model.password) { model.fieldsDidChange() }
         } header: {
-            Text("Xtream Account")
+            Text(AppLocalization.string("sources.iptv.section.account"))
         } footer: {
-            Text("Credentials remain in memory until validation and are saved locally only after you add the source.")
+            Text(AppLocalization.string("sources.iptv.footer.credentials"))
         }
     }
 
@@ -262,7 +282,7 @@ struct AddIPTVSourceView: View {
         switch model.state {
         case .ready:
             Section {
-                Label("Ready to verify", systemImage: "checkmark.shield")
+                Label(AppLocalization.string("sources.iptv.status.ready"), systemImage: "checkmark.shield")
                     .foregroundStyle(.secondary)
             }
 
@@ -271,7 +291,7 @@ struct AddIPTVSourceView: View {
                 HStack(spacing: 10) {
                     ProgressView()
                         .controlSize(.small)
-                    Text("Verifying account…")
+                    Text(AppLocalization.string("sources.iptv.status.verifying"))
                 }
                 .accessibilityIdentifier("addIPTVSource.verifyingState")
             }
@@ -290,35 +310,43 @@ struct AddIPTVSourceView: View {
 
     private func accountSection(_ account: XtreamValidatedAccount) -> some View {
         Section {
-            Label("Account verified", systemImage: "checkmark.circle.fill")
+            Label(AppLocalization.string("sources.iptv.status.verified"), systemImage: "checkmark.circle.fill")
                 .foregroundStyle(.green)
                 .accessibilityIdentifier("addIPTVSource.successState")
 
-            LabeledContent("Status", value: account.status)
+            LabeledContent(AppLocalization.string("sources.iptv.field.status"), value: account.status)
 
             if let expirationDate = account.expirationDate {
                 LabeledContent(
-                    "Expires",
+                    AppLocalization.string("sources.iptv.field.expires"),
                     value: expirationDate.formatted(date: .abbreviated, time: .omitted)
                 )
             }
 
             if account.activeConnections != nil || account.maxConnections != nil {
-                LabeledContent("Connections", value: connectionsDescription(account))
+                LabeledContent(
+                    AppLocalization.string("sources.iptv.field.connections"),
+                    value: connectionsDescription(account)
+                )
             }
 
             if let formats = account.allowedOutputFormats, !formats.isEmpty {
-                LabeledContent("Formats", value: formats.joined(separator: ", "))
+                LabeledContent(
+                    AppLocalization.string("sources.iptv.field.formats"),
+                    value: formats.joined(separator: ", ")
+                )
             }
         } header: {
-            Text("Account")
+            Text(AppLocalization.string("sources.iptv.section.account"))
         }
     }
 
     private var actionSection: some View {
         Section {
             if model.canSave {
-                Button("Add Source") {
+                Button(
+                    AppLocalization.string(editingSource == nil ? "sources.addSource" : "common.save")
+                ) {
                     saveSource()
                 }
                 .disabled(appEnvironment == nil)
@@ -335,10 +363,10 @@ struct AddIPTVSourceView: View {
                         HStack(spacing: 8) {
                             ProgressView()
                                 .controlSize(.small)
-                            Text("Verifying…")
+                            Text(AppLocalization.string("sources.iptv.status.verifyingShort"))
                         }
                     } else {
-                        Text("Verify Account")
+                        Text(AppLocalization.string("sources.iptv.action.verify"))
                     }
                 }
                 .disabled(!model.canVerify)
@@ -360,16 +388,51 @@ struct AddIPTVSourceView: View {
         guard let manager = appEnvironment?.iptvSourcesManager else { return }
         do {
             try model.save { name, serverURL, username, password in
-                try manager.add(
-                    name: name,
-                    serverURL: serverURL,
-                    username: username,
-                    password: password
-                )
+                if let editingSource {
+                    return try manager.update(
+                        id: editingSource.id,
+                        name: name,
+                        serverURL: serverURL,
+                        username: username,
+                        password: password
+                    )
+                } else {
+                    return try manager.add(
+                        name: name,
+                        serverURL: serverURL,
+                        username: username,
+                        password: password
+                    )
+                }
             }
-            dismiss()
+            if let dismissSheet {
+                dismissSheet()
+            } else {
+                dismiss()
+            }
         } catch {
             // The model publishes the non-sensitive manager error in its failure state.
+        }
+    }
+
+    private func loadEditingCredentialsIfNeeded() {
+        guard !didLoadEditingCredentials,
+              let editingSource,
+              let credentialsStore = appEnvironment?.xtreamCredentialsStore else {
+            return
+        }
+        didLoadEditingCredentials = true
+
+        do {
+            guard let credentials = try credentialsStore.credentials(for: editingSource.id) else {
+                model.showFailure(AppLocalization.string("sources.iptv.error.credentialsUnavailable"))
+                return
+            }
+            model.username = credentials.username
+            model.password = credentials.password
+            model.fieldsDidChange()
+        } catch {
+            model.showFailure(AppLocalization.string("sources.iptv.error.credentialsUnavailable"))
         }
     }
 }
@@ -377,9 +440,11 @@ struct AddIPTVSourceView: View {
 // MARK: - Preview
 
 #Preview {
-    AddIPTVSourceView(
-        prefillName: "Living Room",
-        prefillServerURL: "https://example.invalid"
-    )
-    .appEnvironment(.preview)
+    NavigationStack {
+        AddIPTVSourceView(
+            prefillName: "Living Room",
+            prefillServerURL: "https://example.invalid"
+        )
+        .appEnvironment(.preview)
+    }
 }
