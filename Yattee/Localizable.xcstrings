@@ -8831,6 +8831,22 @@
         }
       }
     },
+    "iptv.favorites.manage" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Manage Favorites"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gérer les favoris"
+          }
+        }
+      }
+    },
     "iptv.favorites.remove" : {
       "localizations" : {
         "en" : {

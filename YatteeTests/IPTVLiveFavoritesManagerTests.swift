@@ -65,6 +65,53 @@ struct IPTVLiveFavoritesManagerTests {
         #expect(reloadedManager.favorites(for: sourceID, in: [first, second]) == [second, first])
     }
 
+    @Test("Favorites can be reordered per source and persist immediately")
+    func reorderPersistenceAndIsolation() throws {
+        let persistence = MockIPTVFavoritesPersistence()
+        let firstSource = UUID()
+        let secondSource = UUID()
+        let first = try group(sourceID: firstSource, names: ["TF1 HD"])
+        let second = try group(sourceID: firstSource, names: ["M6 HD"])
+        let otherSource = try group(sourceID: secondSource, names: ["Arte HD"])
+        let manager = IPTVLiveFavoritesManager(persistence: persistence)
+        try manager.toggleFavorite(first)
+        try manager.toggleFavorite(second)
+        try manager.toggleFavorite(otherSource)
+
+        try manager.moveFavorites(
+            for: firstSource,
+            in: [first, second, otherSource],
+            fromOffsets: IndexSet(integer: 1),
+            toOffset: 0
+        )
+        let reloaded = IPTVLiveFavoritesManager(persistence: persistence)
+
+        #expect(reloaded.favorites(for: firstSource, in: [first, second]) == [second, first])
+        #expect(reloaded.favorites(for: secondSource, in: [otherSource]) == [otherSource])
+    }
+
+    @Test("A failed reorder restores the previous favorite order")
+    func reorderFailureRollsBack() throws {
+        let persistence = MockIPTVFavoritesPersistence()
+        let sourceID = UUID()
+        let first = try group(sourceID: sourceID, names: ["TF1 HD"])
+        let second = try group(sourceID: sourceID, names: ["M6 HD"])
+        let manager = IPTVLiveFavoritesManager(persistence: persistence)
+        try manager.toggleFavorite(first)
+        try manager.toggleFavorite(second)
+        persistence.failSave = true
+
+        #expect(throws: IPTVLiveFavoritesError.writeFailed) {
+            try manager.moveFavorites(
+                for: sourceID,
+                in: [first, second],
+                fromOffsets: IndexSet(integer: 1),
+                toOffset: 0
+            )
+        }
+        #expect(manager.favorites(for: sourceID, in: [first, second]) == [first, second])
+    }
+
     @Test("Removing and adding again moves a favorite to the end")
     func removeAndReadd() throws {
         let manager = IPTVLiveFavoritesManager(persistence: MockIPTVFavoritesPersistence())

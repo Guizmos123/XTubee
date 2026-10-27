@@ -52,6 +52,14 @@ struct IPTVSourceDataCleanupTests {
         var preferences = IPTVHiddenCategoriesPreferences()
         preferences.setHidden(true, categoryID: "deleted-category", sourceID: deletedID)
         preferences.setHidden(true, categoryID: "retained-category", sourceID: retainedID)
+        preferences.setOrder(
+            ["deleted-second", "deleted-first"],
+            sourceID: deletedID
+        )
+        preferences.setOrder(
+            ["retained-second", "retained-first"],
+            sourceID: retainedID
+        )
         defaults.set(
             preferences.encoded,
             forKey: UserDefaultsIPTVHiddenCategoriesPersistence.key
@@ -65,6 +73,45 @@ struct IPTVSourceDataCleanupTests {
         )
         #expect(saved.hiddenCount(sourceID: deletedID) == 0)
         #expect(saved.isHidden("retained-category", sourceID: retainedID))
+        let categories = try makeCategories([
+            ("deleted-first", "Deleted First"),
+            ("deleted-second", "Deleted Second")
+        ])
+        #expect(saved.ordered(categories, sourceID: deletedID).map(\.categoryID) == [
+            "deleted-first", "deleted-second"
+        ])
+        let retainedCategories = try makeCategories([
+            ("retained-first", "Retained First"),
+            ("retained-second", "Retained Second")
+        ])
+        #expect(saved.ordered(retainedCategories, sourceID: retainedID).map(\.categoryID) == [
+            "retained-second", "retained-first"
+        ])
+    }
+
+    @Test("Category order persists per source and appends new catalog entries")
+    func categoryOrderPersistenceAndNewEntries() throws {
+        let firstSource = UUID()
+        let secondSource = UUID()
+        let categories = try makeCategories([
+            ("one", "One"),
+            ("two", "Two"),
+            ("new", "New")
+        ])
+        var preferences = IPTVHiddenCategoriesPreferences()
+        preferences.setHidden(true, categoryID: "two", sourceID: firstSource)
+        preferences.setOrder(["two", "one"], sourceID: firstSource)
+        preferences.setOrder(["one", "two"], sourceID: secondSource)
+
+        let reloaded = IPTVHiddenCategoriesPreferences.decode(preferences.encoded)
+
+        #expect(reloaded.ordered(categories, sourceID: firstSource).map(\.categoryID) == [
+            "two", "one", "new"
+        ])
+        #expect(reloaded.ordered(categories, sourceID: secondSource).map(\.categoryID) == [
+            "one", "two", "new"
+        ])
+        #expect(reloaded.isHidden("two", sourceID: firstSource))
     }
 
     private func favoriteID(sourceID: UUID) -> IPTVLiveChannelGroup.ID {
@@ -72,6 +119,18 @@ struct IPTVSourceDataCleanupTests {
             sourceID: sourceID,
             categoryID: "general",
             normalizedName: "channel"
+        )
+    }
+
+    private func makeCategories(
+        _ values: [(id: String, name: String)]
+    ) throws -> [XtreamLiveCategory] {
+        let objects = values.map {
+            ["category_id": $0.id, "category_name": $0.name]
+        }
+        return try JSONDecoder().decode(
+            [XtreamLiveCategory].self,
+            from: JSONSerialization.data(withJSONObject: objects)
         )
     }
 }

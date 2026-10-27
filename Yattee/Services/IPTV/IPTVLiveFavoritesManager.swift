@@ -148,6 +148,32 @@ final class IPTVLiveFavoritesManager {
         }
     }
 
+    func moveFavorites(
+        for sourceID: UUID,
+        in groups: [IPTVLiveChannelGroup],
+        fromOffsets: IndexSet,
+        toOffset: Int
+    ) throws {
+        let availableFavorites = favorites(for: sourceID, in: groups)
+        var reorderedIDs = availableFavorites.map(\.id)
+        reorderedIDs.move(fromOffsets: fromOffsets, toOffset: toOffset)
+
+        let reorderedIDSet = Set(reorderedIDs)
+        let unavailableIDs = favoriteIDs.filter {
+            $0.sourceID == sourceID && !reorderedIDSet.contains($0)
+        }
+        let previousIDs = favoriteIDs
+        favoriteIDs.removeAll { $0.sourceID == sourceID }
+        favoriteIDs.append(contentsOf: reorderedIDs + unavailableIDs)
+
+        do {
+            try persistence.save(favoriteIDs)
+        } catch {
+            favoriteIDs = previousIDs
+            throw IPTVLiveFavoritesError.writeFailed
+        }
+    }
+
     private func loadFavorites() {
         do {
             let loadedIDs = try persistence.load()
