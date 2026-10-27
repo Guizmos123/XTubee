@@ -406,6 +406,10 @@ private actor EPGMockPersistence: IPTVEPGPersisting {
         saveCount += 1
     }
 
+    func remove(sourceID: UUID) async throws {
+        snapshots[sourceID] = nil
+    }
+
     func seed(_ snapshot: IPTVEPGSnapshot) {
         snapshots[snapshot.sourceID] = snapshot
     }

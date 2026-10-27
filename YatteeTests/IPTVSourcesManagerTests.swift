@@ -51,7 +51,7 @@ struct IPTVSourcesManagerTests {
     }
 
     @Test("Selection persists and deleting active source selects the first remaining source")
-    func selectionAndRemoval() throws {
+    func selectionAndRemoval() async throws {
         let persistence = MockIPTVPersistence()
         let credentials = MockXtreamCredentialsStore()
         let manager = IPTVSourcesManager(persistence: persistence, credentialsStore: credentials)
@@ -59,14 +59,61 @@ struct IPTVSourcesManagerTests {
         let second = try manager.add(name: "Second", serverURL: "https://two.invalid", username: "two", password: "pass")
 
         try manager.setActive(id: second.id)
-        try manager.remove(id: second.id)
+        try await manager.remove(id: second.id)
 
         #expect(manager.activeSourceID == first.id)
         #expect(persistence.activeID == first.id)
         #expect(credentials.values[second.id] == nil)
 
-        try manager.remove(id: first.id)
+        try await manager.remove(id: first.id)
         #expect(manager.activeSourceID == nil)
+    }
+
+    @Test("Successful removal cleans source data after metadata and credentials")
+    func removalRunsSecondaryCleanup() async throws {
+        let credentials = MockXtreamCredentialsStore()
+        let manager = IPTVSourcesManager(
+            persistence: MockIPTVPersistence(),
+            credentialsStore: credentials
+        )
+        let cleaner = MockIPTVSourceDataCleaner()
+        manager.setDataCleaner(cleaner)
+        let source = try manager.add(
+            name: "Deleted",
+            serverURL: "https://deleted.invalid",
+            username: "user",
+            password: "pass"
+        )
+
+        try await manager.remove(id: source.id)
+
+        #expect(cleaner.removedSourceIDs == [source.id])
+        #expect(credentials.values[source.id] == nil)
+        #expect(manager.lastCleanupError == nil)
+    }
+
+    @Test("Cleanup failure never restores a deleted source or its credentials")
+    func cleanupFailureDoesNotRollbackRemoval() async throws {
+        let credentials = MockXtreamCredentialsStore()
+        let manager = IPTVSourcesManager(
+            persistence: MockIPTVPersistence(),
+            credentialsStore: credentials
+        )
+        let cleaner = MockIPTVSourceDataCleaner()
+        cleaner.shouldFail = true
+        manager.setDataCleaner(cleaner)
+        let source = try manager.add(
+            name: "Deleted",
+            serverURL: "https://deleted.invalid",
+            username: "user",
+            password: "pass"
+        )
+
+        try await manager.remove(id: source.id)
+
+        #expect(manager.sources.isEmpty)
+        #expect(credentials.values[source.id] == nil)
+        #expect(manager.lastCleanupError == .cleanupFailed)
     }
 
     @Test("Reload repairs an obsolete active source identifier")
@@ -155,7 +202,7 @@ struct IPTVSourcesManagerTests {
     }
 
     @Test("A Keychain delete failure preserves source metadata")
-    func removeCredentialFailure() throws {
+    func removeCredentialFailure() async throws {
         let credentials = MockXtreamCredentialsStore()
         let manager = IPTVSourcesManager(
             persistence: MockIPTVPersistence(),
@@ -164,23 +211,23 @@ struct IPTVSourcesManagerTests {
         let source = try manager.add(name: "Saved", serverURL: "https://server.invalid", username: "user", password: "pass")
         credentials.failDelete = true
 
-        #expect(throws: IPTVSourcesManagerError.credentialFailure) {
-            try manager.remove(id: source.id)
+        await #expect(throws: IPTVSourcesManagerError.credentialFailure) {
+            try await manager.remove(id: source.id)
         }
         #expect(manager.sources == [source])
         #expect(manager.activeSourceID == source.id)
     }
 
     @Test("Removal restores Keychain when persistence rollback also fails")
-    func removeRollbackFailureRestoresCredentials() throws {
+    func removeRollbackFailureRestoresCredentials() async throws {
         let persistence = MockIPTVPersistence()
         let credentials = MockXtreamCredentialsStore()
         let manager = IPTVSourcesManager(persistence: persistence, credentialsStore: credentials)
         let source = try manager.add(name: "Saved", serverURL: "https://server.invalid", username: "user", password: "pass")
         persistence.failSavingActiveID = true
 
-        #expect(throws: IPTVSourcesManagerError.rollbackFailure) {
-            try manager.remove(id: source.id)
+        await #expect(throws: IPTVSourcesManagerError.rollbackFailure) {
+            try await manager.remove(id: source.id)
         }
         #expect(manager.sources == [source])
         #expect(credentials.values[source.id]?.username == "user")
@@ -188,7 +235,7 @@ struct IPTVSourcesManagerTests {
     }
 
     @Test("A failed Keychain restoration is reported as rollback failure")
-    func removeFailedRestorationIsNotMasked() throws {
+    func removeFailedRestorationIsNotMasked() async throws {
         let persistence = MockIPTVPersistence()
         let credentials = MockXtreamCredentialsStore()
         let manager = IPTVSourcesManager(persistence: persistence, credentialsStore: credentials)
@@ -196,8 +243,8 @@ struct IPTVSourcesManagerTests {
         persistence.failSavingActiveID = true
         credentials.failSet = true
 
-        #expect(throws: IPTVSourcesManagerError.rollbackFailure) {
-            try manager.remove(id: source.id)
+        await #expect(throws: IPTVSourcesManagerError.rollbackFailure) {
+            try await manager.remove(id: source.id)
         }
     }
 
@@ -300,5 +347,18 @@ private final class MockXtreamCredentialsStore: XtreamCredentialsStoring {
     func deleteCredentials(for sourceID: UUID) throws {
         if failDelete { throw XtreamCredentialsStoreError.keychainFailure(-1) }
         values.removeValue(forKey: sourceID)
+    }
+}
+
+@MainActor
+private final class MockIPTVSourceDataCleaner: IPTVSourceDataCleaning {
+    var removedSourceIDs: [UUID] = []
+    var shouldFail = false
+
+    func removeData(for sourceID: UUID) async throws {
+        removedSourceIDs.append(sourceID)
+        if shouldFail {
+            throw IPTVSourceDataCleanupError.cleanupFailed
+        }
     }
 }

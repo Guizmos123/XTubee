@@ -644,7 +644,7 @@ private struct IPTVPlayerDetailsView: View {
 
                     if let favoritesManager {
                         Button {
-                            try? favoritesManager.toggleFavorite(presentation.group)
+                            _ = try? favoritesManager.toggleFavorite(presentation.group)
                         } label: {
                             Image(
                                 systemName: isFavorite ? "star.fill" : "star"

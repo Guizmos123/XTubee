@@ -285,7 +285,8 @@ struct IPTVSourceDetailView: View {
         }
         let service = IPTVLiveCatalogSyncService(
             sourcesManager: environment.iptvSourcesManager,
-            credentialsStore: environment.xtreamCredentialsStore
+            credentialsStore: environment.xtreamCredentialsStore,
+            persistence: environment.iptvLiveCatalogPersistence
         )
         await service.loadCachedCatalog(sourceID: sourceID)
         catalogSyncService = service
@@ -338,11 +339,13 @@ struct IPTVSourceDetailView: View {
     }
 
     private func deleteSource() {
-        do {
-            try appEnvironment?.iptvSourcesManager.remove(id: sourceID)
-            dismiss()
-        } catch {
-            errorMessage = error.localizedDescription
+        Task { @MainActor in
+            do {
+                try await appEnvironment?.iptvSourcesManager.remove(id: sourceID)
+                dismiss()
+            } catch {
+                errorMessage = error.localizedDescription
+            }
         }
     }
 

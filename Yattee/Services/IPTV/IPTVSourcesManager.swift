@@ -87,9 +87,11 @@ final class IPTVSourcesManager {
     private(set) var sources: [IPTVSource] = []
     private(set) var activeSourceID: UUID?
     private(set) var loadError: IPTVSourcesManagerError?
+    private(set) var lastCleanupError: IPTVSourceDataCleanupError?
 
     private let persistence: IPTVSourcesPersisting
     private let credentialsStore: XtreamCredentialsStoring
+    private var dataCleaner: IPTVSourceDataCleaning?
 
     var activeSource: IPTVSource? {
         guard let activeSourceID else { return nil }
@@ -218,7 +220,7 @@ final class IPTVSourcesManager {
         return updated
     }
 
-    func remove(id: UUID) throws {
+    func remove(id: UUID) async throws {
         guard let index = sources.firstIndex(where: { $0.id == id }) else {
             throw IPTVSourcesManagerError.sourceNotFound
         }
@@ -258,6 +260,21 @@ final class IPTVSourcesManager {
             }
             throw IPTVSourcesManagerError.persistenceFailure
         }
+
+        lastCleanupError = nil
+        do {
+            try await dataCleaner?.removeData(for: id)
+        } catch {
+            lastCleanupError = .cleanupFailed
+            LoggingService.shared.error(
+                "IPTV source data cleanup failed",
+                category: .general
+            )
+        }
+    }
+
+    func setDataCleaner(_ dataCleaner: IPTVSourceDataCleaning) {
+        self.dataCleaner = dataCleaner
     }
 
     func setActive(id: UUID) throws {

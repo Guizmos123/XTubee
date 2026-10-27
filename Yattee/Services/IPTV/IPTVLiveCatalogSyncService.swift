@@ -61,6 +61,7 @@ struct IPTVLiveCatalogState: Equatable, Sendable {
 protocol IPTVLiveCatalogPersisting: Actor {
     func load(sourceID: UUID) async throws -> IPTVLiveCatalog?
     func save(_ catalog: IPTVLiveCatalog) async throws
+    func remove(sourceID: UUID) async throws
 }
 
 actor FileIPTVLiveCatalogPersistence: IPTVLiveCatalogPersisting {
@@ -112,6 +113,16 @@ actor FileIPTVLiveCatalogPersistence: IPTVLiveCatalogPersisting {
             )
         } catch is CancellationError {
             throw CancellationError()
+        } catch {
+            throw IPTVLiveCatalogSyncError.cacheWriteFailed
+        }
+    }
+
+    func remove(sourceID: UUID) async throws {
+        do {
+            let fileURL = catalogURL(for: sourceID)
+            guard fileManager.fileExists(atPath: fileURL.path) else { return }
+            try fileManager.removeItem(at: fileURL)
         } catch {
             throw IPTVLiveCatalogSyncError.cacheWriteFailed
         }
@@ -320,6 +331,12 @@ final class IPTVLiveCatalogSyncService {
         }
         synchronizationTasks[sourceID] = task
         synchronizationTokens[sourceID] = synchronizationToken
+        defer {
+            if synchronizationTokens[sourceID] == synchronizationToken {
+                synchronizationTasks[sourceID] = nil
+                synchronizationTokens[sourceID] = nil
+            }
+        }
 
         do {
             let catalog = try await withTaskCancellationHandler {
@@ -327,10 +344,16 @@ final class IPTVLiveCatalogSyncService {
             } onCancel: {
                 task.cancel()
             }
-            guard synchronizationTokens[sourceID] == synchronizationToken else { return }
+            guard synchronizationTokens[sourceID] == synchronizationToken,
+                  sourcesManager.sources.contains(where: { $0.id == sourceID }) else {
+                return
+            }
             try await persistence.save(catalog)
             try Task.checkCancellation()
-            guard synchronizationTokens[sourceID] == synchronizationToken else { return }
+            guard synchronizationTokens[sourceID] == synchronizationToken,
+                  sourcesManager.sources.contains(where: { $0.id == sourceID }) else {
+                return
+            }
             states[sourceID] = IPTVLiveCatalogState(
                 catalog: catalog,
                 loadingState: .idle,
@@ -347,10 +370,6 @@ final class IPTVLiveCatalogSyncService {
         } catch {
             guard synchronizationTokens[sourceID] == synchronizationToken else { return }
             setError(.refreshFailed, sourceID: sourceID)
-        }
-        if synchronizationTokens[sourceID] == synchronizationToken {
-            synchronizationTasks[sourceID] = nil
-            synchronizationTokens[sourceID] = nil
         }
     }
 

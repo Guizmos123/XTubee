@@ -779,14 +779,16 @@ struct SourcesListView: View {
         }
 
         if let source = pendingDeleteIPTVSource, let manager = iptvSourcesManager {
-            do {
-                try manager.remove(id: source.id)
-                pendingDeleteIPTVSource = nil
-            } catch {
-                appEnvironment?.toastManager.showError(
-                    AppLocalization.string("common.error"),
-                    subtitle: error.localizedDescription
-                )
+            Task { @MainActor in
+                do {
+                    try await manager.remove(id: source.id)
+                    pendingDeleteIPTVSource = nil
+                } catch {
+                    appEnvironment?.toastManager.showError(
+                        AppLocalization.string("common.error"),
+                        subtitle: error.localizedDescription
+                    )
+                }
             }
         }
     }

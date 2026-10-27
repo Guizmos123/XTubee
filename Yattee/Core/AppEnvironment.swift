@@ -20,6 +20,8 @@ final class AppEnvironment {
     let instancesManager: InstancesManager
     let iptvSourcesManager: IPTVSourcesManager
     let iptvLiveFavoritesManager: IPTVLiveFavoritesManager
+    let iptvLiveCatalogPersistence: IPTVLiveCatalogPersisting
+    let iptvEPGPersistence: IPTVEPGPersisting
     let xtreamCredentialsStore: XtreamCredentialsStore
     let contentService: ContentService
     let instanceDetector: InstanceDetector
@@ -112,11 +114,24 @@ final class AppEnvironment {
 
         let xtreamCredentials = xtreamCredentialsStore ?? XtreamCredentialsStore()
         self.xtreamCredentialsStore = xtreamCredentials
-        self.iptvSourcesManager = iptvSourcesManager ?? IPTVSourcesManager(
+        let liveCatalogPersistence = FileIPTVLiveCatalogPersistence()
+        let epgPersistence = FileIPTVEPGPersistence()
+        let favoritesManager = iptvLiveFavoritesManager ?? IPTVLiveFavoritesManager()
+        let sourcesManager = iptvSourcesManager ?? IPTVSourcesManager(
             persistence: UserDefaultsIPTVSourcesPersistence(),
             credentialsStore: xtreamCredentials
         )
-        self.iptvLiveFavoritesManager = iptvLiveFavoritesManager ?? IPTVLiveFavoritesManager()
+        sourcesManager.setDataCleaner(
+            IPTVSourceDataCleanupCoordinator(
+                livePersistence: liveCatalogPersistence,
+                epgPersistence: epgPersistence,
+                favoritesManager: favoritesManager
+            )
+        )
+        self.iptvSourcesManager = sourcesManager
+        self.iptvLiveFavoritesManager = favoritesManager
+        self.iptvLiveCatalogPersistence = liveCatalogPersistence
+        self.iptvEPGPersistence = epgPersistence
 
         // Initialize Basic Auth Credentials Manager early (needed for ContentService)
         let basicAuthCreds = BasicAuthCredentialsManager()

@@ -72,6 +72,9 @@ struct IPTVRootView: View {
 
     @State private var catalogService: IPTVLiveCatalogSyncService?
     @State private var epgService: IPTVEPGSyncService?
+    @State private var channelGroups: [IPTVLiveChannelGroup] = []
+    @State private var groupedCatalogKey: IPTVLiveChannelGroupingCache.Key?
+    @State private var channelGroupingCache = IPTVLiveChannelGroupingCache()
     @State private var loadedSourceID: UUID?
     @State private var loadedEPGSourceID: UUID?
     @State private var epgReferenceDate = Date()
@@ -216,6 +219,9 @@ struct IPTVRootView: View {
         .task(id: activeSource?.id) {
             await loadCatalogForActiveSource()
         }
+        .task(id: catalogGroupingKey) {
+            await updateChannelGroups()
+        }
         .task(id: activeSource?.id) {
             epgReferenceDate = Date()
             while !Task.isCancelled {
@@ -230,6 +236,8 @@ struct IPTVRootView: View {
             cancelAutomaticSynchronizationPresentation()
             searchText = ""
             isSearchPresented = false
+            channelGroups = []
+            groupedCatalogKey = nil
         }
         .onAppear {
             repairNavigationSelection(useStartPage: true)
@@ -341,11 +349,11 @@ struct IPTVRootView: View {
 
     @ViewBuilder
     private func channelsContent(sourceID: UUID, mode: IPTVChannelsMode) -> some View {
-        if let catalogService, let favoritesManager {
+        if let favoritesManager {
             IPTVChannelsView(
                 sourceID: sourceID,
                 mode: mode,
-                catalogService: catalogService,
+                groups: groupedCatalogKey == catalogGroupingKey ? channelGroups : [],
                 favoritesManager: favoritesManager,
                 onStreamSelected: streamSelectionAction,
                 showsNavigationChrome: false,
@@ -382,11 +390,11 @@ struct IPTVRootView: View {
 
                     ForEach(visibleCategories, id: \.categoryID) { category in
                         NavigationLink {
-                            if let catalogService, let favoritesManager {
+                            if let favoritesManager {
                                 IPTVChannelsView(
                                     sourceID: source.id,
                                     mode: .category(category),
-                                    catalogService: catalogService,
+                                    groups: groupedCatalogKey == catalogGroupingKey ? channelGroups : [],
                                     favoritesManager: favoritesManager,
                                     onStreamSelected: streamSelectionAction,
                                     epgCatalog: epgState.catalog,
@@ -486,22 +494,19 @@ struct IPTVRootView: View {
 
     private var searchChannelGroups: [IPTVLiveChannelGroup] {
         guard !normalizedSearchText.isEmpty,
-              let sourceID = activeSource?.id,
-              let catalog = catalogState.catalog else {
+              groupedCatalogKey == catalogGroupingKey else {
             return []
         }
-        return IPTVLiveChannelGrouper.groups(sourceID: sourceID, streams: catalog.streams)
-            .filter {
-                !$0.isDecorativeSeparator
-                    && $0.displayName.localizedCaseInsensitiveContains(normalizedSearchText)
-            }
+        return channelGroups.filter {
+            !$0.isDecorativeSeparator
+                && $0.displayName.localizedCaseInsensitiveContains(normalizedSearchText)
+        }
     }
 
     @ViewBuilder
     private var globalSearchSuggestions: some View {
         if !normalizedSearchText.isEmpty,
            let source = activeSource,
-           let catalogService,
            let favoritesManager {
             if !searchCategories.isEmpty {
                 Section(AppLocalization.string("iptv.navigation.categories")) {
@@ -510,7 +515,7 @@ struct IPTVRootView: View {
                             IPTVChannelsView(
                                 sourceID: source.id,
                                 mode: .category(category),
-                                catalogService: catalogService,
+                                groups: groupedCatalogKey == catalogGroupingKey ? channelGroups : [],
                                 favoritesManager: favoritesManager,
                                 onStreamSelected: streamSelectionAction,
                                 epgCatalog: epgState.catalog,
@@ -731,7 +736,8 @@ struct IPTVRootView: View {
         } else {
             service = IPTVLiveCatalogSyncService(
                 sourcesManager: environment.iptvSourcesManager,
-                credentialsStore: environment.xtreamCredentialsStore
+                credentialsStore: environment.xtreamCredentialsStore,
+                persistence: environment.iptvLiveCatalogPersistence
             )
             service.selectSource(source.id)
             await service.loadCachedCatalog(sourceID: source.id)
@@ -745,7 +751,8 @@ struct IPTVRootView: View {
         } else {
             guideService = IPTVEPGSyncService(
                 sourcesManager: environment.iptvSourcesManager,
-                credentialsStore: environment.xtreamCredentialsStore
+                credentialsStore: environment.xtreamCredentialsStore,
+                persistence: environment.iptvEPGPersistence
             )
             guideService.selectSource(source.id)
             await guideService.loadCachedCatalog(sourceID: source.id)
@@ -796,6 +803,37 @@ struct IPTVRootView: View {
         manualCatalogRefreshTask != nil
             || catalogState.loadingState != .idle
             || epgState.loadingState != .idle
+    }
+
+    private var catalogGroupingKey: IPTVLiveChannelGroupingCache.Key? {
+        guard let catalog = catalogState.catalog else { return nil }
+        return IPTVLiveChannelGroupingCache.Key(
+            sourceID: catalog.sourceID,
+            catalogLastUpdated: catalog.lastUpdated
+        )
+    }
+
+    @MainActor
+    private func updateChannelGroups() async {
+        guard let catalog = catalogState.catalog else {
+            channelGroups = []
+            groupedCatalogKey = nil
+            return
+        }
+
+        let expectedKey = IPTVLiveChannelGroupingCache.Key(
+            sourceID: catalog.sourceID,
+            catalogLastUpdated: catalog.lastUpdated
+        )
+        guard let groups = await channelGroupingCache.groups(for: catalog),
+              !Task.isCancelled,
+              catalogGroupingKey == expectedKey,
+              activeSource?.id == catalog.sourceID else {
+            return
+        }
+
+        channelGroups = groups
+        groupedCatalogKey = expectedKey
     }
 
     @MainActor
@@ -1076,47 +1114,6 @@ struct IPTVRootView: View {
 
 }
 
-private struct IPTVHiddenCategoriesPreferences: Codable {
-    private var categoryIDsBySource: [String: Set<String>] = [:]
-
-    static func decode(_ value: String) -> IPTVHiddenCategoriesPreferences {
-        guard let data = value.data(using: .utf8), !data.isEmpty,
-              let preferences = try? JSONDecoder().decode(Self.self, from: data) else {
-            return Self()
-        }
-        return preferences
-    }
-
-    var encoded: String {
-        guard let data = try? JSONEncoder().encode(self) else { return "" }
-        return String(decoding: data, as: UTF8.self)
-    }
-
-    func isHidden(_ categoryID: String, sourceID: UUID) -> Bool {
-        categoryIDsBySource[sourceID.uuidString]?.contains(categoryID) == true
-    }
-
-    func hiddenCount(sourceID: UUID) -> Int {
-        categoryIDsBySource[sourceID.uuidString]?.count ?? 0
-    }
-
-    mutating func setHidden(_ isHidden: Bool, categoryID: String, sourceID: UUID) {
-        let key = sourceID.uuidString
-        if isHidden {
-            categoryIDsBySource[key, default: []].insert(categoryID)
-        } else {
-            categoryIDsBySource[key]?.remove(categoryID)
-            if categoryIDsBySource[key]?.isEmpty == true {
-                categoryIDsBySource[key] = nil
-            }
-        }
-    }
-
-    mutating func showAll(sourceID: UUID) {
-        categoryIDsBySource[sourceID.uuidString] = nil
-    }
-}
-
 private struct IPTVOptionsView: View {
     @Environment(\.dismiss) private var dismiss
 
@@ -1337,7 +1334,7 @@ private struct IPTVCurrentProgramCompactView: View {
 private struct IPTVChannelsView: View {
     let sourceID: UUID
     let mode: IPTVChannelsMode
-    let catalogService: IPTVLiveCatalogSyncService
+    let groups: [IPTVLiveChannelGroup]
     let favoritesManager: IPTVLiveFavoritesManager
     let onStreamSelected: IPTVStreamSelectionAction
     var showsNavigationChrome = true
@@ -1352,26 +1349,15 @@ private struct IPTVChannelsView: View {
     @State private var favoriteErrorMessage: String?
     @State private var variantSelection: IPTVVariantSelectionContext?
 
-    private var groups: [IPTVLiveChannelGroup] {
-        guard let catalog = catalogService.state(for: sourceID).catalog else { return [] }
+    private var visibleChannelGroups: [IPTVLiveChannelGroup] {
+        let availableGroups = groups.filter { !$0.isDecorativeSeparator }
         switch mode {
         case .all:
-            return IPTVLiveChannelGrouper.groups(
-                sourceID: sourceID,
-                streams: catalog.streams
-            ).filter { !$0.isDecorativeSeparator }
+            return availableGroups
         case .favorites:
-            let availableGroups = IPTVLiveChannelGrouper.groups(
-                sourceID: sourceID,
-                streams: catalog.streams
-            ).filter { !$0.isDecorativeSeparator }
             return favoritesManager.favorites(for: sourceID, in: availableGroups)
         case .category(let category):
-            let categoryStreams = catalog.streams.filter { $0.categoryID == category.categoryID }
-            return IPTVLiveChannelGrouper.groups(
-                sourceID: sourceID,
-                streams: categoryStreams
-            ).filter { !$0.isDecorativeSeparator }
+            return availableGroups.filter { $0.categoryID == category.categoryID }
         }
     }
 
@@ -1406,7 +1392,7 @@ private struct IPTVChannelsView: View {
     }
 
     var body: some View {
-        let visibleGroups = groups
+        let visibleGroups = visibleChannelGroups
         Group {
             if visibleGroups.isEmpty {
                 ScrollView {

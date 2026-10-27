@@ -227,6 +227,43 @@ struct IPTVLiveCatalogSyncServiceTests {
         #expect(await fixture.catalogPersistence.currentSaveCount() == 0)
     }
 
+    @Test("Deleting a source during synchronization cannot recreate its cache")
+    func sourceDeletionPreventsLateCacheWrite() async throws {
+        let fixture = try makeFixture()
+        await fixture.catalogPersistence.seed(
+            try makeCatalog(sourceID: fixture.source.id, updatedAt: fixture.now)
+        )
+        let started = AsyncSignal()
+        let release = AsyncSignal()
+        let currentDate = fixture.now
+        let service = IPTVLiveCatalogSyncService(
+            sourcesManager: fixture.sourcesManager,
+            credentialsStore: fixture.credentialsStore,
+            persistence: fixture.catalogPersistence,
+            now: { currentDate },
+            fetchCategories: { _, _, _ in
+                await started.signal()
+                await release.wait()
+                return try Self.categories(suffix: "late")
+            },
+            fetchStreams: { _, _, _ in
+                return try Self.streams(suffix: "late")
+            }
+        )
+        fixture.sourcesManager.setDataCleaner(
+            CatalogPersistenceCleaner(persistence: fixture.catalogPersistence)
+        )
+
+        let refreshTask = Task { await service.refresh(sourceID: fixture.source.id) }
+        await started.wait()
+        try await fixture.sourcesManager.remove(id: fixture.source.id)
+        await release.signal()
+        await refreshTask.value
+
+        #expect(await fixture.catalogPersistence.catalog(for: fixture.source.id) == nil)
+        #expect(await fixture.catalogPersistence.currentSaveCount() == 0)
+    }
+
     @Test("Cached payload contains neither credentials nor a server URL")
     func cachedPayloadContainsNoSecrets() throws {
         let sourceID = UUID()
@@ -345,6 +382,10 @@ private actor SyncMockCatalogPersistence: IPTVLiveCatalogPersisting {
         catalogs[catalog.sourceID] = catalog
     }
 
+    func remove(sourceID: UUID) async throws {
+        catalogs[sourceID] = nil
+    }
+
     func seed(_ catalog: IPTVLiveCatalog) {
         catalogs[catalog.sourceID] = catalog
     }
@@ -358,6 +399,19 @@ private actor SyncMockCatalogPersistence: IPTVLiveCatalogPersisting {
     func setFailSave(_ value: Bool) { failSave = value }
     func setSaveGate(started: AsyncSignal, release: AsyncSignal) {
         saveGate = (started, release)
+    }
+}
+
+@MainActor
+private final class CatalogPersistenceCleaner: IPTVSourceDataCleaning {
+    private let persistence: SyncMockCatalogPersistence
+
+    init(persistence: SyncMockCatalogPersistence) {
+        self.persistence = persistence
+    }
+
+    func removeData(for sourceID: UUID) async throws {
+        try await persistence.remove(sourceID: sourceID)
     }
 }
 

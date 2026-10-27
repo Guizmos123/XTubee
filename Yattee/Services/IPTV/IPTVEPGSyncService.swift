@@ -67,6 +67,7 @@ struct IPTVEPGState: Equatable, Sendable {
 protocol IPTVEPGPersisting: Actor {
     func load(sourceID: UUID) async throws -> IPTVEPGSnapshot?
     func save(_ snapshot: IPTVEPGSnapshot) async throws
+    func remove(sourceID: UUID) async throws
 }
 
 actor FileIPTVEPGPersistence: IPTVEPGPersisting {
@@ -127,6 +128,16 @@ actor FileIPTVEPGPersistence: IPTVEPGPersisting {
             )
         } catch is CancellationError {
             throw CancellationError()
+        } catch {
+            throw IPTVEPGSyncError.cacheWriteFailed
+        }
+    }
+
+    func remove(sourceID: UUID) async throws {
+        do {
+            let fileURL = cacheURL(for: sourceID)
+            guard fileManager.fileExists(atPath: fileURL.path) else { return }
+            try fileManager.removeItem(at: fileURL)
         } catch {
             throw IPTVEPGSyncError.cacheWriteFailed
         }
@@ -412,6 +423,12 @@ final class IPTVEPGSyncService {
         }
         synchronizationTasks[sourceID] = task
         synchronizationTokens[sourceID] = synchronizationToken
+        defer {
+            if synchronizationTokens[sourceID] == synchronizationToken {
+                synchronizationTasks[sourceID] = nil
+                synchronizationTokens[sourceID] = nil
+            }
+        }
 
         do {
             let snapshot = try await withTaskCancellationHandler {
@@ -419,10 +436,16 @@ final class IPTVEPGSyncService {
             } onCancel: {
                 task.cancel()
             }
-            guard synchronizationTokens[sourceID] == synchronizationToken else { return }
+            guard synchronizationTokens[sourceID] == synchronizationToken,
+                  sourcesManager.sources.contains(where: { $0.id == sourceID }) else {
+                return
+            }
             try await persistence.save(snapshot)
             try Task.checkCancellation()
-            guard synchronizationTokens[sourceID] == synchronizationToken else { return }
+            guard synchronizationTokens[sourceID] == synchronizationToken,
+                  sourcesManager.sources.contains(where: { $0.id == sourceID }) else {
+                return
+            }
             states[sourceID] = IPTVEPGState(
                 snapshot: snapshot,
                 loadingState: .idle,
@@ -447,10 +470,6 @@ final class IPTVEPGSyncService {
             setError(.downloadFailed, sourceID: sourceID)
         }
 
-        if synchronizationTokens[sourceID] == synchronizationToken {
-            synchronizationTasks[sourceID] = nil
-            synchronizationTokens[sourceID] = nil
-        }
     }
 
     private func setError(_ error: IPTVEPGSyncError, sourceID: UUID) {
