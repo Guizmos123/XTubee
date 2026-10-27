@@ -30,6 +30,7 @@ struct CompactTabView: View {
     @State private var sourcesPath = NavigationPath()
     @State private var settingsPath = NavigationPath()
     @State private var continueWatchingPath = NavigationPath()
+    @State private var iptvPath = NavigationPath()
 
     // Tab selection - using String to support both fixed and dynamic tabs
     // Initial value is a placeholder; actual startup tab is applied in onAppear
@@ -203,6 +204,8 @@ struct CompactTabView: View {
             destination = .downloads
         case TabBarItem.sources.rawValue:
             destination = nil  // No handoff for sources
+        case TabBarItem.iptv.rawValue:
+            destination = nil  // No handoff for IPTV
         case TabBarItem.settings.rawValue:
             destination = nil  // No handoff for settings
         default:
@@ -297,6 +300,8 @@ struct CompactTabView: View {
             settingsPath.append(destination)
         case TabBarItem.continueWatching.rawValue:
             continueWatchingPath.append(destination)
+        case TabBarItem.iptv.rawValue:
+            iptvPath.append(destination)
         default:
             homePath.append(destination)
         }
@@ -359,6 +364,11 @@ struct CompactTabView: View {
                 ContinueWatchingView()
                     .withNavigationDestinations()
             }
+        case .iptv:
+            NavigationStack(path: $iptvPath) {
+                IPTVRootView()
+                    .withNavigationDestinations()
+            }
         }
     }
 
@@ -393,6 +403,8 @@ struct CompactTabView: View {
             settingsPath.append(destination)
         case TabBarItem.continueWatching.rawValue:
             continueWatchingPath.append(destination)
+        case TabBarItem.iptv.rawValue:
+            iptvPath.append(destination)
         default:
             // Fallback to home
             homePath.append(destination)

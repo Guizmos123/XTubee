@@ -58,14 +58,12 @@ struct IPTVLiveCatalogState: Equatable, Sendable {
     )
 }
 
-@MainActor
-protocol IPTVLiveCatalogPersisting: AnyObject {
-    func load(sourceID: UUID) throws -> IPTVLiveCatalog?
-    func save(_ catalog: IPTVLiveCatalog) throws
+protocol IPTVLiveCatalogPersisting: Actor {
+    func load(sourceID: UUID) async throws -> IPTVLiveCatalog?
+    func save(_ catalog: IPTVLiveCatalog) async throws
 }
 
-@MainActor
-final class FileIPTVLiveCatalogPersistence: IPTVLiveCatalogPersisting {
+actor FileIPTVLiveCatalogPersistence: IPTVLiveCatalogPersisting {
     private let fileManager: FileManager
     private let directoryURL: URL
     private let encoder = JSONEncoder()
@@ -79,19 +77,25 @@ final class FileIPTVLiveCatalogPersistence: IPTVLiveCatalogPersisting {
         )[0].appendingPathComponent("IPTVLiveCatalog", isDirectory: true)
     }
 
-    func load(sourceID: UUID) throws -> IPTVLiveCatalog? {
+    func load(sourceID: UUID) async throws -> IPTVLiveCatalog? {
+        try Task.checkCancellation()
         let fileURL = catalogURL(for: sourceID)
         guard fileManager.fileExists(atPath: fileURL.path) else { return nil }
 
         do {
-            return try decoder.decode(IPTVLiveCatalog.self, from: Data(contentsOf: fileURL))
+            let data = try Data(contentsOf: fileURL)
+            try Task.checkCancellation()
+            return try decoder.decode(IPTVLiveCatalog.self, from: data)
+        } catch is CancellationError {
+            throw CancellationError()
         } catch {
             throw IPTVLiveCatalogSyncError.cacheReadFailed
         }
     }
 
-    func save(_ catalog: IPTVLiveCatalog) throws {
+    func save(_ catalog: IPTVLiveCatalog) async throws {
         do {
+            try Task.checkCancellation()
             try fileManager.createDirectory(
                 at: directoryURL,
                 withIntermediateDirectories: true
@@ -100,10 +104,14 @@ final class FileIPTVLiveCatalogPersistence: IPTVLiveCatalogPersisting {
             resourceValues.isExcludedFromBackup = true
             var localDirectoryURL = directoryURL
             try localDirectoryURL.setResourceValues(resourceValues)
-            try encoder.encode(catalog).write(
+            let data = try encoder.encode(catalog)
+            try Task.checkCancellation()
+            try data.write(
                 to: catalogURL(for: catalog.sourceID),
                 options: .atomic
             )
+        } catch is CancellationError {
+            throw CancellationError()
         } catch {
             throw IPTVLiveCatalogSyncError.cacheWriteFailed
         }
@@ -185,21 +193,24 @@ final class IPTVLiveCatalogSyncService {
         states[sourceID] ?? .empty
     }
 
-    /// Loads the last valid catalog synchronously so callers can render it immediately.
+    /// Loads the last valid catalog before synchronization so callers can render it immediately.
     @discardableResult
-    func loadCachedCatalog(sourceID: UUID) -> IPTVLiveCatalog? {
+    func loadCachedCatalog(sourceID: UUID) async -> IPTVLiveCatalog? {
         if let loadedState = states[sourceID], loadedState.catalog != nil {
             return loadedState.catalog
         }
 
         do {
-            let catalog = try persistence.load(sourceID: sourceID)
+            let catalog = try await persistence.load(sourceID: sourceID)
+            try Task.checkCancellation()
             states[sourceID] = IPTVLiveCatalogState(
                 catalog: catalog,
                 loadingState: .idle,
                 lastError: nil
             )
             return catalog
+        } catch is CancellationError {
+            return states[sourceID]?.catalog
         } catch {
             states[sourceID] = IPTVLiveCatalogState(
                 catalog: nil,
@@ -210,17 +221,21 @@ final class IPTVLiveCatalogSyncService {
         }
     }
 
-    func synchronizeIfNeeded(sourceID: UUID) async {
-        let cachedCatalog = loadCachedCatalog(sourceID: sourceID)
+    func synchronizeIfNeeded(
+        sourceID: UUID,
+        onSynchronizationStarted: (@MainActor @Sendable () -> Void)? = nil
+    ) async {
+        let cachedCatalog = await loadCachedCatalog(sourceID: sourceID)
         if let cachedCatalog,
            now().timeIntervalSince(cachedCatalog.lastUpdated) <= cacheLifetime {
             return
         }
+        onSynchronizationStarted?()
         await synchronize(sourceID: sourceID)
     }
 
     func refresh(sourceID: UUID) async {
-        _ = loadCachedCatalog(sourceID: sourceID)
+        _ = await loadCachedCatalog(sourceID: sourceID)
         await synchronize(sourceID: sourceID)
     }
 
@@ -313,7 +328,9 @@ final class IPTVLiveCatalogSyncService {
                 task.cancel()
             }
             guard synchronizationTokens[sourceID] == synchronizationToken else { return }
-            try persistence.save(catalog)
+            try await persistence.save(catalog)
+            try Task.checkCancellation()
+            guard synchronizationTokens[sourceID] == synchronizationToken else { return }
             states[sourceID] = IPTVLiveCatalogState(
                 catalog: catalog,
                 loadingState: .idle,

@@ -23,12 +23,13 @@ enum SidebarMainItem: String, CaseIterable, Codable, Identifiable, Sendable {
     case openURL
     case remoteControl
     case continueWatching
+    case iptv
 
     var id: String { rawValue }
 
     /// Default order for sidebar main items.
     static var defaultOrder: [SidebarMainItem] {
-        [.search, .home, .hub, .subscriptions, .bookmarks, .history, .channels, .playlists, .sources, .openURL, .remoteControl, .downloads, .continueWatching, .settings]
+        [.search, .home, .hub, .iptv, .subscriptions, .bookmarks, .history, .channels, .playlists, .sources, .openURL, .remoteControl, .downloads, .continueWatching, .settings]
     }
 
     /// Default visibility (all visible except subscriptions and channels).
@@ -48,7 +49,8 @@ enum SidebarMainItem: String, CaseIterable, Codable, Identifiable, Sendable {
             .settings: true,
             .openURL: false,
             .remoteControl: true,
-            .continueWatching: false
+            .continueWatching: false,
+            .iptv: true
         ]
         #else
         [
@@ -65,7 +67,8 @@ enum SidebarMainItem: String, CaseIterable, Codable, Identifiable, Sendable {
             .settings: true,
             .openURL: false,
             .remoteControl: false,
-            .continueWatching: false
+            .continueWatching: false,
+            .iptv: true
         ]
         #endif
     }
@@ -87,6 +90,7 @@ enum SidebarMainItem: String, CaseIterable, Codable, Identifiable, Sendable {
         case .openURL: "link"
         case .remoteControl: "antenna.radiowaves.left.and.right"
         case .continueWatching: "play.circle"
+        case .iptv: "play.tv"
         }
     }
 
@@ -107,6 +111,7 @@ enum SidebarMainItem: String, CaseIterable, Codable, Identifiable, Sendable {
         case .openURL: AppLocalization.string("sidebar.mainItem.openURL")
         case .remoteControl: AppLocalization.string("sidebar.mainItem.remoteControl")
         case .continueWatching: AppLocalization.string("sidebar.mainItem.continueWatching")
+        case .iptv: AppLocalization.string("tabs.iptv")
         }
     }
 
@@ -160,6 +165,7 @@ enum SidebarMainItem: String, CaseIterable, Codable, Identifiable, Sendable {
         case .openURL: return "open-url"
         case .remoteControl: return "remote-control"
         case .continueWatching: return "continue-watching"
+        case .iptv: return TabBarItem.iptv.rawValue
         }
     }
 
@@ -180,6 +186,7 @@ enum SidebarMainItem: String, CaseIterable, Codable, Identifiable, Sendable {
         case .openURL: return .openURL
         case .remoteControl: return .remoteControl
         case .continueWatching: return .continueWatching
+        case .iptv: return .iptv
         }
     }
 
@@ -196,6 +203,7 @@ enum SidebarMainItem: String, CaseIterable, Codable, Identifiable, Sendable {
         case .sources: self = .sources
         case .settings: self = .settings
         case .continueWatching: self = .continueWatching
+        case .iptv: self = .iptv
         }
     }
 }

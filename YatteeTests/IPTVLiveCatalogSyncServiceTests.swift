@@ -16,11 +16,11 @@ struct IPTVLiveCatalogSyncServiceTests {
     func freshCacheAvoidsNetwork() async throws {
         let fixture = try makeFixture()
         let cached = try makeCatalog(sourceID: fixture.source.id, updatedAt: fixture.now.addingTimeInterval(-60))
-        fixture.catalogPersistence.catalogs[fixture.source.id] = cached
+        await fixture.catalogPersistence.seed(cached)
         let calls = CatalogRequestCounter()
         let service = makeService(fixture: fixture, calls: calls)
 
-        #expect(service.loadCachedCatalog(sourceID: fixture.source.id) == cached)
+        #expect(await service.loadCachedCatalog(sourceID: fixture.source.id) == cached)
         await service.synchronizeIfNeeded(sourceID: fixture.source.id)
         let categoryCount = await calls.categoryCount
         let streamCount = await calls.streamCount
@@ -38,7 +38,7 @@ struct IPTVLiveCatalogSyncServiceTests {
             updatedAt: fixture.now.addingTimeInterval(-(25 * 60 * 60)),
             suffix: "old"
         )
-        fixture.catalogPersistence.catalogs[fixture.source.id] = oldCatalog
+        await fixture.catalogPersistence.seed(oldCatalog)
         let calls = CatalogRequestCounter()
         let service = makeService(fixture: fixture, calls: calls)
 
@@ -50,7 +50,7 @@ struct IPTVLiveCatalogSyncServiceTests {
         #expect(result.categories.map(\.categoryID) == ["new-category"])
         #expect(result.streams.map(\.streamID) == ["new-stream"])
         #expect(result.lastUpdated == fixture.now)
-        #expect(fixture.catalogPersistence.catalogs[fixture.source.id] == result)
+        #expect(await fixture.catalogPersistence.catalog(for: fixture.source.id) == result)
         #expect(categoryCount == 1)
         #expect(streamCount == 1)
     }
@@ -58,11 +58,11 @@ struct IPTVLiveCatalogSyncServiceTests {
     @Test("Manual refresh bypasses a fresh cache")
     func manualRefreshIsForced() async throws {
         let fixture = try makeFixture()
-        fixture.catalogPersistence.catalogs[fixture.source.id] = try makeCatalog(
+        await fixture.catalogPersistence.seed(try makeCatalog(
             sourceID: fixture.source.id,
             updatedAt: fixture.now.addingTimeInterval(-60),
             suffix: "cached"
-        )
+        ))
         let calls = CatalogRequestCounter()
         let service = makeService(fixture: fixture, calls: calls)
 
@@ -79,7 +79,7 @@ struct IPTVLiveCatalogSyncServiceTests {
     func partialNetworkFailurePreservesCache() async throws {
         let fixture = try makeFixture()
         let cached = try makeCatalog(sourceID: fixture.source.id, updatedAt: fixture.now.addingTimeInterval(-100_000))
-        fixture.catalogPersistence.catalogs[fixture.source.id] = cached
+        await fixture.catalogPersistence.seed(cached)
         let currentDate = fixture.now
         let service = IPTVLiveCatalogSyncService(
             sourcesManager: fixture.sourcesManager,
@@ -95,15 +95,15 @@ struct IPTVLiveCatalogSyncServiceTests {
         let state = service.state(for: fixture.source.id)
         #expect(state.catalog == cached)
         #expect(state.lastError == .refreshFailed)
-        #expect(fixture.catalogPersistence.saveCount == 0)
+        #expect(await fixture.catalogPersistence.currentSaveCount() == 0)
     }
 
     @Test("A cache write failure does not publish a partially replaced catalog")
     func cacheWriteFailurePreservesPreviousCatalog() async throws {
         let fixture = try makeFixture()
         let cached = try makeCatalog(sourceID: fixture.source.id, updatedAt: fixture.now.addingTimeInterval(-100_000))
-        fixture.catalogPersistence.catalogs[fixture.source.id] = cached
-        fixture.catalogPersistence.failSave = true
+        await fixture.catalogPersistence.seed(cached)
+        await fixture.catalogPersistence.setFailSave(true)
         let service = makeService(fixture: fixture, calls: CatalogRequestCounter())
 
         await service.refresh(sourceID: fixture.source.id)
@@ -111,7 +111,68 @@ struct IPTVLiveCatalogSyncServiceTests {
         let state = service.state(for: fixture.source.id)
         #expect(state.catalog == cached)
         #expect(state.lastError == .cacheWriteFailed)
-        #expect(fixture.catalogPersistence.catalogs[fixture.source.id] == cached)
+        #expect(await fixture.catalogPersistence.catalog(for: fixture.source.id) == cached)
+    }
+
+    @Test("A cache read failure is published without starting the network")
+    func cacheReadFailureIsPublished() async throws {
+        let fixture = try makeFixture()
+        await fixture.catalogPersistence.setFailLoad(true)
+        let service = makeService(fixture: fixture, calls: CatalogRequestCounter())
+
+        #expect(await service.loadCachedCatalog(sourceID: fixture.source.id) == nil)
+        #expect(service.state(for: fixture.source.id).lastError == .cacheReadFailed)
+    }
+
+    @Test("A refreshed catalog is published only after persistence completes")
+    func persistenceCompletesBeforePublication() async throws {
+        let fixture = try makeFixture()
+        let cached = try makeCatalog(
+            sourceID: fixture.source.id,
+            updatedAt: fixture.now.addingTimeInterval(-100_000)
+        )
+        await fixture.catalogPersistence.seed(cached)
+        let saveStarted = AsyncSignal()
+        let allowSave = AsyncSignal()
+        await fixture.catalogPersistence.setSaveGate(started: saveStarted, release: allowSave)
+        let service = makeService(fixture: fixture, calls: CatalogRequestCounter())
+
+        let refreshTask = Task { await service.refresh(sourceID: fixture.source.id) }
+        await saveStarted.wait()
+
+        #expect(service.state(for: fixture.source.id).catalog == cached)
+        #expect(service.state(for: fixture.source.id).loadingState == .refreshing)
+
+        await allowSave.signal()
+        await refreshTask.value
+
+        #expect(service.state(for: fixture.source.id).catalog?.categories.first?.categoryID == "new-category")
+        #expect(service.state(for: fixture.source.id).loadingState == .idle)
+    }
+
+    @Test("Cancellation during persistence never publishes an obsolete catalog")
+    func cancellationDuringPersistenceDoesNotPublish() async throws {
+        let fixture = try makeFixture()
+        let cached = try makeCatalog(
+            sourceID: fixture.source.id,
+            updatedAt: fixture.now.addingTimeInterval(-100_000)
+        )
+        await fixture.catalogPersistence.seed(cached)
+        let saveStarted = AsyncSignal()
+        let allowSave = AsyncSignal()
+        await fixture.catalogPersistence.setSaveGate(started: saveStarted, release: allowSave)
+        let service = makeService(fixture: fixture, calls: CatalogRequestCounter())
+        service.selectSource(fixture.source.id)
+
+        let refreshTask = Task { await service.refresh(sourceID: fixture.source.id) }
+        await saveStarted.wait()
+        service.selectSource(UUID())
+        await allowSave.signal()
+        await refreshTask.value
+
+        #expect(service.state(for: fixture.source.id).catalog == cached)
+        #expect(service.state(for: fixture.source.id).loadingState == .idle)
+        #expect(await fixture.catalogPersistence.currentSaveCount() == 1)
     }
 
     @Test("Concurrent refreshes share one synchronization per source")
@@ -128,14 +189,14 @@ struct IPTVLiveCatalogSyncServiceTests {
 
         #expect(categoryCount == 1)
         #expect(streamCount == 1)
-        #expect(fixture.catalogPersistence.saveCount == 1)
+        #expect(await fixture.catalogPersistence.currentSaveCount() == 1)
     }
 
     @Test("Changing the selected source cancels obsolete work and retains its cache")
     func sourceChangeCancelsPreviousSynchronization() async throws {
         let fixture = try makeFixture()
         let cached = try makeCatalog(sourceID: fixture.source.id, updatedAt: fixture.now.addingTimeInterval(-100_000))
-        fixture.catalogPersistence.catalogs[fixture.source.id] = cached
+        await fixture.catalogPersistence.seed(cached)
         let started = AsyncSignal()
         let currentDate = fixture.now
         let sourceID = fixture.source.id
@@ -163,7 +224,7 @@ struct IPTVLiveCatalogSyncServiceTests {
 
         #expect(service.state(for: sourceID).catalog == cached)
         #expect(service.state(for: sourceID).loadingState == .idle)
-        #expect(fixture.catalogPersistence.saveCount == 0)
+        #expect(await fixture.catalogPersistence.currentSaveCount() == 0)
     }
 
     @Test("Cached payload contains neither credentials nor a server URL")
@@ -261,22 +322,42 @@ private struct Fixture {
     let catalogPersistence: SyncMockCatalogPersistence
 }
 
-@MainActor
-private final class SyncMockCatalogPersistence: IPTVLiveCatalogPersisting {
+private actor SyncMockCatalogPersistence: IPTVLiveCatalogPersisting {
     var catalogs: [UUID: IPTVLiveCatalog] = [:]
     var saveCount = 0
     var failLoad = false
     var failSave = false
+    var saveGate: (started: AsyncSignal, release: AsyncSignal)?
 
-    func load(sourceID: UUID) throws -> IPTVLiveCatalog? {
+    func load(sourceID: UUID) async throws -> IPTVLiveCatalog? {
         if failLoad { throw IPTVLiveCatalogSyncError.cacheReadFailed }
         return catalogs[sourceID]
     }
 
-    func save(_ catalog: IPTVLiveCatalog) throws {
+    func save(_ catalog: IPTVLiveCatalog) async throws {
         if failSave { throw IPTVLiveCatalogSyncError.cacheWriteFailed }
+        if let saveGate {
+            await saveGate.started.signal()
+            await saveGate.release.wait()
+            try Task.checkCancellation()
+        }
         saveCount += 1
         catalogs[catalog.sourceID] = catalog
+    }
+
+    func seed(_ catalog: IPTVLiveCatalog) {
+        catalogs[catalog.sourceID] = catalog
+    }
+
+    func catalog(for sourceID: UUID) -> IPTVLiveCatalog? {
+        catalogs[sourceID]
+    }
+
+    func currentSaveCount() -> Int { saveCount }
+    func setFailLoad(_ value: Bool) { failLoad = value }
+    func setFailSave(_ value: Bool) { failSave = value }
+    func setSaveGate(started: AsyncSignal, release: AsyncSignal) {
+        saveGate = (started, release)
     }
 }
 

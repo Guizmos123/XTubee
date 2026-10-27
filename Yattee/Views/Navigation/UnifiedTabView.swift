@@ -43,6 +43,7 @@ struct UnifiedTabView: View {
     @State private var openURLPath = NavigationPath()
     @State private var remoteControlPath = NavigationPath()
     @State private var continueWatchingPath = NavigationPath()
+    @State private var iptvPath = NavigationPath()
 
     // Current selection - initial value is a placeholder; actual startup tab is applied in onAppear
     @State private var selection: SidebarItem = .home
@@ -303,6 +304,15 @@ struct UnifiedTabView: View {
             } label: {
                 Label(SidebarItem.continueWatching.title, systemImage: SidebarItem.continueWatching.systemImage)
             }
+        case .iptv:
+            Tab(value: SidebarItem.iptv) {
+                NavigationStack(path: $iptvPath) {
+                    IPTVRootView()
+                        .withNavigationDestinations()
+                }
+            } label: {
+                Label(SidebarItem.iptv.title, systemImage: SidebarItem.iptv.systemImage)
+            }
         }
     }
 
@@ -437,6 +447,7 @@ struct UnifiedTabView: View {
     @State private var openURLPath = NavigationPath()
     @State private var remoteControlPath = NavigationPath()
     @State private var continueWatchingPath = NavigationPath()
+    @State private var iptvPath = NavigationPath()
 
     // Current selection - initial value is a placeholder; actual startup tab is applied in onAppear
     @State private var selection: SidebarItem = .home
@@ -607,6 +618,11 @@ struct UnifiedTabView: View {
                 ContinueWatchingView()
                     .withNavigationDestinations()
             }
+        case .iptv:
+            NavigationStack(path: $iptvPath) {
+                IPTVRootView()
+                    .withNavigationDestinations()
+            }
         case .channel:
             channelContent(for: selection)
         case .playlist:
@@ -656,6 +672,7 @@ struct UnifiedTabView: View {
     @State private var openURLPath = NavigationPath()
     @State private var remoteControlPath = NavigationPath()
     @State private var continueWatchingPath = NavigationPath()
+    @State private var iptvPath = NavigationPath()
 
     // Current selection - initial value is a placeholder; actual startup tab is applied in onAppear
     @State private var selection: SidebarItem = .home
@@ -739,6 +756,8 @@ struct UnifiedTabView: View {
             remoteControlPath = NavigationPath()
         case .continueWatching:
             continueWatchingPath = NavigationPath()
+        case .iptv:
+            iptvPath = NavigationPath()
         case let .channel(channelID, _, _):
             channelPaths[channelID] = NavigationPath()
         case let .playlist(id, _):
@@ -940,6 +959,15 @@ struct UnifiedTabView: View {
             } label: {
                 Label(SidebarItem.continueWatching.title, systemImage: SidebarItem.continueWatching.systemImage)
             }
+        case .iptv:
+            Tab(value: SidebarItem.iptv) {
+                NavigationStack(path: $iptvPath) {
+                    IPTVRootView()
+                        .withNavigationDestinations()
+                }
+            } label: {
+                Label(SidebarItem.iptv.title, systemImage: SidebarItem.iptv.systemImage)
+            }
         }
     }
 
@@ -1061,6 +1089,8 @@ extension UnifiedTabView {
             remoteControlPath.append(destination)
         case .continueWatching:
             continueWatchingPath.append(destination)
+        case .iptv:
+            iptvPath.append(destination)
         }
         navigationCoordinator?.clearPendingNavigation()
     }

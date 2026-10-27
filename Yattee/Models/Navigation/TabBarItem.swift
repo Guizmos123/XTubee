@@ -19,17 +19,18 @@ enum TabBarItem: String, CaseIterable, Codable, Identifiable, Sendable {
     case sources
     case settings
     case continueWatching
+    case iptv
 
     var id: String { rawValue }
 
     /// Default order for tab bar items.
     static var defaultOrder: [TabBarItem] {
-        [.subscriptions, .channels, .hub, .bookmarks, .playlists, .history, .continueWatching, .sources, .downloads, .settings]
+        [.subscriptions, .channels, .hub, .iptv, .bookmarks, .playlists, .history, .continueWatching, .sources, .downloads, .settings]
     }
 
     /// Default visibility (only subscriptions visible by default).
     static var defaultVisibility: [TabBarItem: Bool] {
-        [.subscriptions: false, .channels: false, .hub: true, .bookmarks: false, .playlists: false, .history: false, .downloads: true, .sources: true, .settings: false, .continueWatching: false]
+        [.subscriptions: false, .channels: false, .hub: true, .iptv: true, .bookmarks: false, .playlists: false, .history: false, .downloads: true, .sources: true, .settings: false, .continueWatching: false]
     }
 
     /// SF Symbol icon name.
@@ -45,6 +46,7 @@ enum TabBarItem: String, CaseIterable, Codable, Identifiable, Sendable {
         case .sources: "server.rack"
         case .settings: "gear"
         case .continueWatching: "play.circle"
+        case .iptv: "play.tv"
         }
     }
 
@@ -61,6 +63,7 @@ enum TabBarItem: String, CaseIterable, Codable, Identifiable, Sendable {
         case .sources: AppLocalization.string("tabBar.item.sources")
         case .settings: AppLocalization.string("tabBar.item.settings")
         case .continueWatching: AppLocalization.string("tabBar.item.continueWatching")
+        case .iptv: AppLocalization.string("tabs.iptv")
         }
     }
 

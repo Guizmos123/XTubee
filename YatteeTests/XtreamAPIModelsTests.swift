@@ -157,7 +157,7 @@ struct XtreamAPIModelsTests {
         }
     }
 
-    @Test("Ignores unknown fields and does not retain direct_source")
+    @Test("Decodes EPG identifiers and ignores sensitive direct sources")
     func unknownFields() throws {
         let stream = try decode(XtreamLiveStream.self, from: #"""
         {
@@ -165,7 +165,7 @@ struct XtreamAPIModelsTests {
           "name": "Demo Channel",
           "stream_type": "live",
           "direct_source": "https://origin.invalid/live/ignored/path/500.ts",
-          "epg_channel_id": "ignored",
+          "epg_channel_id": "xmltv.demo",
           "custom_sid": "ignored"
         }
         """#)
@@ -173,6 +173,7 @@ struct XtreamAPIModelsTests {
         #expect(stream.streamID == "500")
         #expect(stream.name == "Demo Channel")
         #expect(stream.streamType == "live")
+        #expect(stream.epgChannelID == "xmltv.demo")
     }
 
     private func decode<T: Decodable>(_ type: T.Type, from json: String) throws -> T {

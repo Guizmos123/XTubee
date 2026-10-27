@@ -59,7 +59,7 @@ struct IPTVSourceDetailView: View {
             }
         }
         .task(id: sourceID) {
-            prepareCatalogCache()
+            await prepareCatalogCache()
             startRefresh()
         }
         .onDisappear {
@@ -278,7 +278,7 @@ struct IPTVSourceDetailView: View {
         }
     }
 
-    private func prepareCatalogCache() {
+    private func prepareCatalogCache() async {
         guard catalogSyncService == nil,
               let environment = appEnvironment else {
             return
@@ -287,7 +287,7 @@ struct IPTVSourceDetailView: View {
             sourcesManager: environment.iptvSourcesManager,
             credentialsStore: environment.xtreamCredentialsStore
         )
-        service.loadCachedCatalog(sourceID: sourceID)
+        await service.loadCachedCatalog(sourceID: sourceID)
         catalogSyncService = service
     }
 

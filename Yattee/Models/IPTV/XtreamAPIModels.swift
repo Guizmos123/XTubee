@@ -98,6 +98,7 @@ struct XtreamLiveStream: Codable, Hashable, Sendable {
     let name: String
     let streamIconURL: URL?
     let categoryID: String?
+    let epgChannelID: String?
     let streamType: String?
     let addedDate: Date?
 
@@ -106,6 +107,7 @@ struct XtreamLiveStream: Codable, Hashable, Sendable {
         case name
         case streamIcon = "stream_icon"
         case categoryID = "category_id"
+        case epgChannelID = "epg_channel_id"
         case streamType = "stream_type"
         case added = "added"
     }
@@ -116,6 +118,9 @@ struct XtreamLiveStream: Codable, Hashable, Sendable {
         name = try container.decode(String.self, forKey: .name)
         streamIconURL = try container.decodeHTTPURLIfPresent(forKey: .streamIcon)
         categoryID = try container.decodeFlexibleStringIfPresent(forKey: .categoryID)
+        epgChannelID = try container.decodeFlexibleStringIfPresent(forKey: .epgChannelID)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .nilIfEmpty
         streamType = try container.decodeIfPresent(String.self, forKey: .streamType)
         addedDate = try container.decodeUnixDateIfPresent(forKey: .added)
     }
@@ -126,8 +131,15 @@ struct XtreamLiveStream: Codable, Hashable, Sendable {
         try container.encode(name, forKey: .name)
         try container.encodeIfPresent(streamIconURL?.absoluteString, forKey: .streamIcon)
         try container.encodeIfPresent(categoryID, forKey: .categoryID)
+        try container.encodeIfPresent(epgChannelID, forKey: .epgChannelID)
         try container.encodeIfPresent(streamType, forKey: .streamType)
         try container.encodeIfPresent(addedDate?.timeIntervalSince1970, forKey: .added)
+    }
+}
+
+private extension String {
+    var nilIfEmpty: String? {
+        isEmpty ? nil : self
     }
 }
 

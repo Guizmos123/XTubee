@@ -160,6 +160,28 @@ enum PiPState: Equatable, Sendable {
     case active
 }
 
+/// Describes how the current playback may interact with persistent app state.
+struct IPTVPlaybackPresentation: Equatable, Sendable {
+    let sourceName: String
+    let group: IPTVLiveChannelGroup
+    let epgCatalog: EPGCatalog?
+}
+
+enum PlayerPlaybackContext: Equatable, Sendable {
+    case standard
+    case iptv(sourceID: UUID, presentation: IPTVPlaybackPresentation? = nil)
+
+    var allowsPersistence: Bool {
+        switch self {
+        case .standard: return true
+        case .iptv: return false
+        }
+    }
+
+    var allowsQueueStorage: Bool { allowsPersistence }
+    var allowsSharing: Bool { allowsPersistence }
+}
+
 /// Queue playback mode.
 enum QueueMode: String, CaseIterable, Codable, Sendable {
     case normal
@@ -216,6 +238,9 @@ final class PlayerState {
 
     /// The separate audio stream (for video-only streams).
     private(set) var currentAudioStream: Stream?
+
+    /// Persistence and sharing policy for the current playback.
+    private(set) var playbackContext: PlayerPlaybackContext = .standard
 
     /// Current playback state.
     private(set) var playbackState: PlaybackState = .idle
@@ -474,6 +499,23 @@ final class PlayerState {
         }
     }
 
+    /// Changes playback policy and removes references that must not cross the
+    /// boundary between ephemeral IPTV playback and regular playback.
+    func transitionPlaybackContext(to context: PlayerPlaybackContext) {
+        guard context != playbackContext else { return }
+
+        if !playbackContext.allowsPersistence || !context.allowsPersistence {
+            queue.removeAll()
+            history.removeAll()
+        }
+        if !playbackContext.allowsPersistence {
+            currentVideo = nil
+            currentStream = nil
+            currentAudioStream = nil
+        }
+        playbackContext = context
+    }
+
     /// Updates the current stream without changing the video.
     func updateCurrentStream(_ stream: Stream) {
         currentStream = stream
@@ -538,21 +580,25 @@ final class PlayerState {
         comments = []
         commentsState = .idle
         commentsContinuation = nil
+        playbackContext = .standard
     }
 
     /// Adds a video to the end of the queue.
     func addToQueue(_ video: Video, stream: Stream? = nil, audioStream: Stream? = nil, captions: [Caption] = [], queueSource: QueueSource? = nil) {
+        guard playbackContext.allowsQueueStorage else { return }
         queue.append(QueuedVideo(video: video, stream: stream, audioStream: audioStream, captions: captions, queueSource: queueSource))
     }
 
     /// Adds multiple videos to the end of the queue.
     func addToQueue(_ videos: [Video], queueSource: QueueSource? = nil) {
+        guard playbackContext.allowsQueueStorage else { return }
         let queuedVideos = videos.map { QueuedVideo(video: $0, queueSource: queueSource) }
         queue.append(contentsOf: queuedVideos)
     }
 
     /// Inserts a video at the front of the queue (to play next).
     func insertNext(_ video: Video, stream: Stream? = nil, audioStream: Stream? = nil, captions: [Caption] = [], queueSource: QueueSource? = nil) {
+        guard playbackContext.allowsQueueStorage else { return }
         queue.insert(QueuedVideo(video: video, stream: stream, audioStream: audioStream, captions: captions, queueSource: queueSource), at: 0)
     }
 
@@ -616,6 +662,7 @@ final class PlayerState {
     /// Pushes a video to history (for going back later).
     /// Keeps history limited to maxHistorySize.
     func pushToHistory(_ video: QueuedVideo) {
+        guard playbackContext.allowsQueueStorage else { return }
         history.append(video)
         if history.count > maxHistorySize {
             history.removeFirst()
@@ -637,6 +684,10 @@ final class PlayerState {
     /// Moves all history items back to queue for repeat all mode.
     /// History is cleared after moving.
     func recycleHistoryToQueue() {
+        guard playbackContext.allowsQueueStorage else {
+            history.removeAll()
+            return
+        }
         // History is ordered oldest-first, so we insert in that order
         // This puts the first played video at front of queue
         queue.insert(contentsOf: history, at: 0)

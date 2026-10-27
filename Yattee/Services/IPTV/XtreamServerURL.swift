@@ -82,6 +82,39 @@ enum XtreamServerURL {
         }
         return url
     }
+
+    /// Builds an ephemeral XMLTV URL. Callers must not persist or log the result.
+    static func xmlTVURL(
+        serverURL: URL,
+        username: String,
+        password: String
+    ) throws -> URL {
+        let validatedServerURL = try normalize(serverURL.absoluteString)
+        guard var components = URLComponents(
+            url: validatedServerURL,
+            resolvingAgainstBaseURL: false
+        ) else {
+            throw XtreamClientError.invalidServerURL
+        }
+
+        if components.percentEncodedPath.isEmpty {
+            components.percentEncodedPath = "/xmltv.php"
+        } else if components.percentEncodedPath.hasSuffix("/") {
+            components.percentEncodedPath += "xmltv.php"
+        } else {
+            components.percentEncodedPath += "/xmltv.php"
+        }
+
+        var queryItems = components.queryItems ?? []
+        queryItems.append(URLQueryItem(name: "username", value: username))
+        queryItems.append(URLQueryItem(name: "password", value: password))
+        components.queryItems = queryItems
+
+        guard let url = components.url else {
+            throw XtreamClientError.invalidServerURL
+        }
+        return url
+    }
 }
 
 enum XtreamRedirectPolicy {

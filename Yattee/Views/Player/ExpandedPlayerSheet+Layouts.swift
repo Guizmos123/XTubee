@@ -121,8 +121,19 @@ extension ExpandedPlayerSheet {
     /// Standard player content for portrait mode with video at top and panel below.
     @ViewBuilder
     func standardPlayerContent(geometry: GeometryProxy) -> some View {
+        // Keep the pinned IPTV player aligned with the standard 16:9 presentation.
+        // MPV's reported ratio remains authoritative in fullscreen, landscape, and PiP.
+        let isIPTVPlayback = if let context = playerState?.playbackContext,
+                                case .iptv = context {
+            true
+        } else {
+            false
+        }
+        let usesPinnedIPTVAspectRatio = isPortraitPanelVisible && isIPTVPlayback
         // Ensure valid aspect ratio (avoid division by zero)
-        let rawAspectRatio = playerState?.displayAspectRatio ?? (16.0 / 9.0)
+        let rawAspectRatio = usesPinnedIPTVAspectRatio
+            ? (16.0 / 9.0)
+            : (playerState?.displayAspectRatio ?? (16.0 / 9.0))
         let aspectRatio = rawAspectRatio > 0 ? rawAspectRatio : (16.0 / 9.0)
         // Content area size (excludes safe areas)
         let contentHeight = max(1, geometry.size.height)
@@ -199,7 +210,9 @@ extension ExpandedPlayerSheet {
 
         // Panel height when pinned (capped by maxPanelHeight for widescreen videos without description)
         let naturalPanelHeight = screenHeight - fitHeight
-        let pinnedPanelHeight = min(naturalPanelHeight, maxPanelHeight)
+        let pinnedPanelHeight = isIPTVPlayback
+            ? naturalPanelHeight
+            : min(naturalPanelHeight, maxPanelHeight)
         let pillsOverlayOpacity: CGFloat = {
             guard isPanelDragging, panelDragOffset > 0 else { return 1 }
             let fadeDistance: CGFloat = 48
@@ -650,6 +663,12 @@ extension ExpandedPlayerSheet {
         activeLayout: PlayerControlsLayout = .default
     ) -> some View {
         let info = playbackInfo
+        let isIPTVPlayback = if let context = playerState?.playbackContext,
+                                case .iptv = context {
+            true
+        } else {
+            false
+        }
 
         // Ensure valid dimensions (guard against negative or zero values)
         let safeVideoWidth = max(1, videoWidth)
@@ -710,7 +729,17 @@ extension ExpandedPlayerSheet {
                     // Stable display - @State image never flashes during re-renders
                     Group {
                         if let thumbnailImage = displayedThumbnailImage {
-                            thumbnailImage.resizable().aspectRatio(contentMode: .fill)
+                            if isIPTVPlayback {
+                                thumbnailImage
+                                    .resizable()
+                                    .scaledToFit()
+                                    .frame(
+                                        maxWidth: min(safeVideoWidth * 0.5, 180),
+                                        maxHeight: min(safeVideoHeight * 0.6, 100)
+                                    )
+                            } else {
+                                thumbnailImage.resizable().aspectRatio(contentMode: .fill)
+                            }
                         } else {
                             Color.black
                         }

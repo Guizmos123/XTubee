@@ -1354,58 +1354,37 @@ struct SubscriptionsView: View {
 
     @ViewBuilder
     private func feedSyncCapsule(for state: FeedSyncCapsuleState) -> some View {
-        HStack(spacing: 10) {
-            switch state {
-            case .synchronizing:
-                Image(systemName: "arrow.trianglehead.2.clockwise.rotate.90")
-                    .foregroundStyle(accentColor)
-                    .symbolEffect(.rotate, options: .repeating)
-
-                Text(AppLocalization.string("subscriptions.feedSync.synchronizing"))
-
-            case .progress(let completed, let total):
-                Image(systemName: "arrow.trianglehead.2.clockwise.rotate.90")
-                    .foregroundStyle(accentColor)
-                    .symbolEffect(.rotate, options: .repeating)
-
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 8) {
-                        Text(AppLocalization.string("subscriptions.feedSync.synchronizing"))
-                        Spacer(minLength: 4)
-                        Text(verbatim: "\(Int((Double(completed) / Double(total)) * 100))%")
-                            .monospacedDigit()
-                            .foregroundStyle(.secondary)
-                    }
-
-                    ProgressView(value: Double(completed), total: Double(total))
-                        .progressViewStyle(.linear)
-                        .frame(height: 2)
-                }
-                .frame(width: 210)
-
-            case .success:
-                Image(systemName: "checkmark.circle.fill")
-                    .foregroundStyle(.green)
-                Text(AppLocalization.string("subscriptions.feedSync.upToDate"))
-
-            case .partial:
-                Image(systemName: "exclamationmark.circle.fill")
-                    .foregroundStyle(.orange)
-                Text(AppLocalization.string("subscriptions.feedSync.incomplete"))
-
-            case .error:
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .foregroundStyle(.orange)
-                Text(AppLocalization.string("subscriptions.feedSync.error"))
-            }
+        switch state {
+        case .synchronizing:
+            SyncStatusCapsule(
+                state: .synchronizing(AppLocalization.string("subscriptions.feedSync.synchronizing")),
+                accentColor: accentColor
+            )
+        case .progress(let completed, let total):
+            SyncStatusCapsule(
+                state: .progress(
+                    AppLocalization.string("subscriptions.feedSync.synchronizing"),
+                    completed: completed,
+                    total: total
+                ),
+                accentColor: accentColor
+            )
+        case .success:
+            SyncStatusCapsule(
+                state: .success(AppLocalization.string("subscriptions.feedSync.upToDate")),
+                accentColor: accentColor
+            )
+        case .partial:
+            SyncStatusCapsule(
+                state: .warning(AppLocalization.string("subscriptions.feedSync.incomplete")),
+                accentColor: accentColor
+            )
+        case .error:
+            SyncStatusCapsule(
+                state: .error(AppLocalization.string("subscriptions.feedSync.error")),
+                accentColor: accentColor
+            )
         }
-        .font(.subheadline.weight(.medium))
-        .lineLimit(1)
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .glassBackground(.regular, in: .capsule, fallback: .regularMaterial)
-        .shadow(color: .black.opacity(0.12), radius: 8, y: 3)
-        .accessibilityElement(children: .combine)
     }
 
     private func updateFeedSyncCapsule(for observation: FeedSyncObservation) {
@@ -1655,6 +1634,75 @@ private enum FeedSyncCapsuleState: Equatable {
     case error
 }
 #endif
+
+struct SyncStatusCapsule: View {
+    enum State: Equatable {
+        case synchronizing(String)
+        case progress(String, completed: Int, total: Int)
+        case success(String)
+        case warning(String)
+        case error(String)
+    }
+
+    let state: State
+    let accentColor: Color
+
+    var body: some View {
+        HStack(spacing: 10) {
+            switch state {
+            case .synchronizing(let message):
+                synchronizingIcon
+                Text(message)
+
+            case .progress(let message, let completed, let total):
+                synchronizingIcon
+
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 8) {
+                        Text(message)
+                        Spacer(minLength: 4)
+                        Text(verbatim: "\(Int((Double(completed) / Double(total)) * 100))%")
+                            .monospacedDigit()
+                            .foregroundStyle(.secondary)
+                    }
+
+                    ProgressView(value: Double(completed), total: Double(total))
+                        .progressViewStyle(.linear)
+                        .frame(height: 2)
+                }
+                .frame(width: 210)
+
+            case .success(let message):
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
+                Text(message)
+
+            case .warning(let message):
+                Image(systemName: "exclamationmark.circle.fill")
+                    .foregroundStyle(.orange)
+                Text(message)
+
+            case .error(let message):
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+                Text(message)
+            }
+        }
+        .font(.subheadline.weight(.medium))
+        .lineLimit(1)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .glassBackground(.regular, in: .capsule, fallback: .regularMaterial)
+        .shadow(color: .black.opacity(0.12), radius: 8, y: 3)
+        .accessibilityElement(children: .combine)
+    }
+
+    private var synchronizingIcon: some View {
+        Image(systemName: "arrow.trianglehead.2.clockwise.rotate.90")
+            .foregroundStyle(accentColor)
+            .symbolEffect(.rotate, options: .repeating)
+    }
+}
 
 // MARK: - Preview
 

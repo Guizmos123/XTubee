@@ -207,7 +207,8 @@ struct MacOSControlsSectionRenderer: View {
             }
 
         case .queue:
-            if actions.onShowQueue != nil {
+            if actions.playerState.playbackContext.allowsQueueStorage,
+               actions.onShowQueue != nil {
                 controlButton(systemImage: "list.bullet", help: config.buttonType.displayName) {
                     actions.onShowQueue?()
                 }
@@ -219,7 +220,9 @@ struct MacOSControlsSectionRenderer: View {
             }
 
         case .addToPlaylist:
-            if actions.canAddToPlaylist, actions.onShowPlaylistSelector != nil {
+            if actions.playerState.playbackContext.allowsPersistence,
+               actions.canAddToPlaylist,
+               actions.onShowPlaylistSelector != nil {
                 controlButton(systemImage: "text.badge.plus", help: config.buttonType.displayName) {
                     actions.onShowPlaylistSelector?()
                 }
@@ -236,12 +239,15 @@ struct MacOSControlsSectionRenderer: View {
                 .opacity(isLocked ? 0.5 : 1.0)
 
         case .share:
-            shareButton
-                .disabled(isLocked)
-                .opacity(isLocked ? 0.5 : 1.0)
+            if actions.playerState.playbackContext.allowsSharing {
+                shareButton
+                    .disabled(isLocked)
+                    .opacity(isLocked ? 0.5 : 1.0)
+            }
 
         case .contextMenu:
-            if let video = actions.currentVideo {
+            if actions.playerState.playbackContext.allowsSharing,
+               let video = actions.currentVideo {
                 VideoContextMenuView(
                     video: video,
                     accentColor: tint,
@@ -670,7 +676,8 @@ struct MacOSControlsSectionRenderer: View {
 
     @ViewBuilder
     private var shareButton: some View {
-        if let video = actions.currentVideo {
+        if actions.playerState.playbackContext.allowsSharing,
+           let video = actions.currentVideo {
             ShareLink(item: video.shareURL) {
                 buttonLabel(systemImage: "square.and.arrow.up")
             }

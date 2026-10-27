@@ -192,7 +192,8 @@ struct ControlsSectionRenderer: View {
             }
 
         case .queue:
-            if actions.onShowQueue != nil {
+            if actions.playerState.playbackContext.allowsQueueStorage,
+               actions.onShowQueue != nil {
                 controlButton(systemImage: "list.bullet") {
                     actions.onShowQueue?()
                 }
@@ -229,19 +230,25 @@ struct ControlsSectionRenderer: View {
                 .opacity(isLocked ? 0.5 : 1.0)
 
         case .share:
-            shareButton
-                .disabled(isLocked)
-                .opacity(isLocked ? 0.5 : 1.0)
+            if actions.playerState.playbackContext.allowsSharing {
+                shareButton
+                    .disabled(isLocked)
+                    .opacity(isLocked ? 0.5 : 1.0)
+            }
 
         case .addToPlaylist:
-            addToPlaylistButton
-                .disabled(isLocked)
-                .opacity(isLocked ? 0.5 : 1.0)
+            if actions.playerState.playbackContext.allowsPersistence {
+                addToPlaylistButton
+                    .disabled(isLocked)
+                    .opacity(isLocked ? 0.5 : 1.0)
+            }
 
         case .contextMenu:
-            contextMenuButton
-                .disabled(isLocked)
-                .opacity(isLocked ? 0.5 : 1.0)
+            if actions.playerState.playbackContext.allowsSharing {
+                contextMenuButton
+                    .disabled(isLocked)
+                    .opacity(isLocked ? 0.5 : 1.0)
+            }
 
         case .playPause:
             if actions.onPlayPause != nil {
@@ -945,7 +952,8 @@ struct ControlsSectionRenderer: View {
 
     @ViewBuilder
     private var shareButton: some View {
-        if let video = actions.currentVideo {
+        if actions.playerState.playbackContext.allowsSharing,
+           let video = actions.currentVideo {
             ShareLink(item: video.shareURL) {
                 buttonContent(systemImage: "square.and.arrow.up", tint: .white)
             }
@@ -967,7 +975,8 @@ struct ControlsSectionRenderer: View {
 
     @ViewBuilder
     private var contextMenuButton: some View {
-        if let video = actions.currentVideo {
+        if actions.playerState.playbackContext.allowsSharing,
+           let video = actions.currentVideo {
             VideoContextMenuView(
                 video: video,
                 accentColor: .white,

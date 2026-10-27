@@ -152,7 +152,7 @@ actor XtreamHTTPClient {
     }
 }
 
-private final class XtreamRedirectDelegate: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+final class XtreamRedirectDelegate: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
     func urlSession(
         _ session: URLSession,
         task: URLSessionTask,

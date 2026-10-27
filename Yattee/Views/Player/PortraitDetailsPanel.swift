@@ -47,6 +47,12 @@ struct PortraitDetailsPanel: View {
     // Video details helpers
     private var videoDetailsState: VideoDetailsLoadState { playerState?.videoDetailsState ?? .idle }
 
+    private var iptvPresentation: IPTVPlaybackPresentation? {
+        guard let context = playerState?.playbackContext,
+              case .iptv(_, let presentation) = context else { return nil }
+        return presentation
+    }
+
     // Queue helpers
     private var queue: [QueuedVideo] { playerState?.queue ?? [] }
     private var history: [QueuedVideo] { playerState?.history ?? [] }
@@ -152,12 +158,19 @@ struct PortraitDetailsPanel: View {
                             Color.clear
                                 .frame(height: 10)
 
-                            videoInfo(video)
+                            if let iptvPresentation {
+                                IPTVPlayerDetailsView(
+                                    presentation: iptvPresentation,
+                                    favoritesManager: appEnvironment?.iptvLiveFavoritesManager
+                                )
+                            } else {
+                                videoInfo(video)
 
-                            Divider()
-                                .padding(.horizontal)
+                                Divider()
+                                    .padding(.horizontal)
 
-                            infoTabSection(video)
+                                infoTabSection(video)
+                            }
                         }
                     }
                     .background(Color(.systemBackground))
@@ -568,6 +581,178 @@ struct PortraitDetailsPanel: View {
             }
             // No description text removed - let panel shrink instead
         }
+    }
+}
+
+private struct IPTVPlayerDetailsView: View {
+    let presentation: IPTVPlaybackPresentation
+    let favoritesManager: IPTVLiveFavoritesManager?
+
+    @State private var isDescriptionExpanded = false
+
+    private var logoURL: URL? {
+        presentation.group.variants.lazy.compactMap(\.stream.streamIconURL).first
+    }
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 30)) { timeline in
+            let associator: IPTVChannelEPGAssociator? = if let catalog = presentation.epgCatalog {
+                IPTVChannelEPGAssociator(catalog: catalog)
+            } else {
+                nil
+            }
+            let association = associator?.association(for: presentation.group)
+            let nowAndNext = associator?.nowAndNext(
+                for: presentation.group,
+                at: timeline.date
+            )
+            let isFavorite = favoritesManager?.isFavorite(presentation.group) == true
+            let upcomingPrograms: [EPGProgram] = if let associator,
+                                                    let association,
+                                                    let channelID = nowAndNext?.channelID {
+                associator.upcomingPrograms(
+                    for: association,
+                    channelID: channelID,
+                    startingAt: nowAndNext?.currentProgram?.end ?? timeline.date,
+                    limit: 2
+                )
+            } else {
+                []
+            }
+
+            VStack(alignment: .leading, spacing: 16) {
+                HStack(spacing: 14) {
+                    IPTVChannelLogo(url: logoURL)
+                        .frame(width: 88, height: 50)
+
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text(presentation.group.displayName)
+                            .font(.title3.weight(.semibold))
+                            .lineLimit(2)
+
+                        Label(AppLocalization.string("player.live"), systemImage: "dot.radiowaves.left.and.right")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.red)
+
+                        Label(presentation.sourceName, systemImage: "server.rack")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+
+                    Spacer(minLength: 0)
+
+                    if let favoritesManager {
+                        Button {
+                            try? favoritesManager.toggleFavorite(presentation.group)
+                        } label: {
+                            Image(
+                                systemName: isFavorite ? "star.fill" : "star"
+                            )
+                            .foregroundStyle(
+                                isFavorite ? Color.yellow : Color.secondary
+                            )
+                            .font(.title3)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(
+                            AppLocalization.string(
+                                isFavorite ? "iptv.favorites.remove" : "iptv.favorites.add"
+                            )
+                        )
+                    }
+                }
+
+                if let current = nowAndNext?.currentProgram {
+                    VStack(alignment: .leading, spacing: 7) {
+                        Text(current.title)
+                            .font(.body.weight(.medium))
+
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            Text(schedule(for: current))
+                            Spacer(minLength: 8)
+                            Text(remainingTime(for: current, at: timeline.date))
+                        }
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+
+                        ProgressView(value: progress(for: current, at: timeline.date))
+                            .progressViewStyle(.linear)
+                            .tint(.accentColor)
+
+                        if let description = normalizedDescription(current.description) {
+                            Text(description)
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(isDescriptionExpanded ? nil : 3)
+
+                            if description.count > 180 {
+                                Button(
+                                    AppLocalization.string(
+                                        isDescriptionExpanded ? "common.less" : "common.more"
+                                    )
+                                ) {
+                                    withAnimation(.easeInOut(duration: 0.2)) {
+                                        isDescriptionExpanded.toggle()
+                                    }
+                                }
+                                .font(.caption.weight(.medium))
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    }
+                    .onChange(of: current) { _, _ in
+                        isDescriptionExpanded = false
+                    }
+                }
+
+                if !upcomingPrograms.isEmpty {
+                    VStack(alignment: .leading, spacing: 9) {
+                        Label(AppLocalization.string("player.next"), systemImage: "forward.end")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+
+                        ForEach(Array(upcomingPrograms.enumerated()), id: \.offset) { index, program in
+                            if index > 0 {
+                                Divider()
+                            }
+
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(program.title)
+                                    .font(.subheadline)
+                                Text(schedule(for: program))
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .monospacedDigit()
+                            }
+                        }
+                    }
+                }
+            }
+            .padding()
+        }
+    }
+
+    private func normalizedDescription(_ description: String?) -> String? {
+        guard let description = description?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !description.isEmpty else { return nil }
+        return description
+    }
+
+    private func remainingTime(for program: EPGProgram, at date: Date) -> String {
+        let remaining = max(0, program.end.timeIntervalSince(date))
+        return AppLocalization.string("home.history.remaining \(remaining.formattedAsTimestamp)")
+    }
+
+    private func schedule(for program: EPGProgram) -> String {
+        "\(program.start.formatted(date: .omitted, time: .shortened)) – \(program.end.formatted(date: .omitted, time: .shortened))"
+    }
+
+    private func progress(for program: EPGProgram, at date: Date) -> Double {
+        let duration = program.end.timeIntervalSince(program.start)
+        guard duration > 0 else { return 0 }
+        return min(max(date.timeIntervalSince(program.start) / duration, 0), 1)
     }
 }
 

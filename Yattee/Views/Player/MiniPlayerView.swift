@@ -166,7 +166,10 @@ struct MiniPlayerView: View {
         }
         .accessibilityIdentifier("player.miniPlayer")
         .accessibilityLabel("player.miniPlayer")
-        .modifier(MiniPlayerContextMenuModifier(video: currentVideo) {
+        .modifier(MiniPlayerContextMenuModifier(
+            video: currentVideo,
+            isEnabled: playerState?.playbackContext.allowsSharing == true
+        ) {
             closeVideo()
         })
         .task {
@@ -583,11 +586,17 @@ struct MiniPlayerView: View {
         case .close:
             closeButton
         case .queue:
-            queueButton(config: config)
+            if playerState?.playbackContext.allowsQueueStorage == true {
+                queueButton(config: config)
+            }
         case .share:
-            shareButton(config: config)
+            if playerState?.playbackContext.allowsSharing == true {
+                shareButton(config: config)
+            }
         case .addToPlaylist:
-            addToPlaylistButton(config: config)
+            if playerState?.playbackContext.allowsPersistence == true {
+                addToPlaylistButton(config: config)
+            }
         case .airplay:
             airplayButton
         case .pictureInPicture:
@@ -710,7 +719,7 @@ struct MiniPlayerView: View {
 
     @ViewBuilder
     private func shareButton(config: ControlButtonConfiguration) -> some View {
-        if let video = currentVideo {
+        if playerState?.playbackContext.allowsSharing == true, let video = currentVideo {
             ShareLink(item: video.shareURL) {
                 Image(systemName: "square.and.arrow.up")
                     .font(isTabAccessory ? .title3 : .title2)
@@ -845,10 +854,11 @@ struct MiniPlayerView: View {
 /// Only applies the context menu when a video is available.
 private struct MiniPlayerContextMenuModifier: ViewModifier {
     let video: Video?
+    let isEnabled: Bool
     let closeAction: () -> Void
 
     func body(content: Content) -> some View {
-        if let video {
+        if isEnabled, let video {
             content.videoContextMenu(
                 video: video,
                 customActions: [

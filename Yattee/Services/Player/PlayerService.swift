@@ -246,12 +246,39 @@ final class PlayerService {
 
     // MARK: - Public Methods
 
+    /// Applies persistence policy before a new item is exposed to the player.
+    /// Leaving an IPTV context also stops the backend so it releases its private
+    /// reference to the credential-bearing stream URL before regular playback.
+    private func transitionPlaybackContextIfNeeded(to context: PlayerPlaybackContext) {
+        let previousContext = state.playbackContext
+        guard previousContext != context else { return }
+
+        if !previousContext.allowsPersistence {
+            currentPlayTask?.cancel()
+            currentPlayTask = nil
+            currentBackend?.stop()
+            availableStreams = []
+            originalStreams = []
+            availableCaptions = []
+            currentCaption = nil
+            currentDownload = nil
+        }
+
+        state.transitionPlaybackContext(to: context)
+        queueManager?.clearQueue()
+        if !context.allowsPersistence {
+            handoffManager?.invalidateCurrentActivity()
+        }
+    }
+
     /// Prepares a video for playback without loading streams.
     /// Shows the video in the player with a play button overlay.
     /// Call `play(video:)` to actually start loading and playing.
     /// - Parameter video: The video to prepare
     func prepare(video: Video) {
         LoggingService.shared.logPlayer("Preparing video: \(video.id.id)")
+
+        transitionPlaybackContextIfNeeded(to: .standard)
 
         // Clear streams
         availableStreams = []
@@ -270,7 +297,10 @@ final class PlayerService {
     ///   - startTime: Optional start time in seconds
     ///   - forceStartTime: When true, startTime is an explicit user request (timed link,
     ///     chapter tap) and is honored even past the completion threshold
-    func play(video: Video, stream: Stream? = nil, audioStream: Stream? = nil, startTime: TimeInterval? = nil, forceStartTime: Bool = false) async {
+    func play(video: Video, stream: Stream? = nil, audioStream: Stream? = nil, startTime: TimeInterval? = nil, forceStartTime: Bool = false, context: PlayerPlaybackContext? = nil) async {
+        if let context {
+            transitionPlaybackContextIfNeeded(to: context)
+        }
         // Downloaded/local files bypass stream selection (they arrive here as
         // ready-made file:// streams), so audio mode is applied at this choke
         // point instead of in selectStreams.
@@ -592,7 +622,9 @@ final class PlayerService {
             backend.play()
 
             // Update Handoff activity for cross-device continuation
-            handoffManager?.updateActivity(for: .video(.id(video.id)))
+            if state.playbackContext.allowsPersistence {
+                handoffManager?.updateActivity(for: .video(.id(video.id)))
+            }
 
             // Fetch dislike counts for YouTube videos (only for online content)
             // Note: SponsorBlock is fetched earlier in parallel with stream loading
@@ -858,6 +890,7 @@ final class PlayerService {
     /// Pushes current video to history if not in incognito mode.
     private func pushCurrentToHistoryIfNeeded() {
         guard let currentVideo = state.currentVideo,
+              state.playbackContext.allowsQueueStorage,
               settingsManager?.incognitoModeEnabled != true,
               settingsManager?.saveWatchHistory != false else { return }
         let historyItem = QueuedVideo(
@@ -1082,8 +1115,16 @@ final class PlayerService {
     ///   - startTime: Optional start time in seconds (used for continue watching)
     ///   - forceStartTime: When true, startTime is an explicit user request (timed link,
     ///     chapter tap) and is honored even past the completion threshold
-    func openVideo(_ video: Video, startTime: TimeInterval? = nil, forceStartTime: Bool = false) {
-        FeedVideoOpenRegistry.shared.markOpenedFromPlayer(video)
+    func openVideo(
+        _ video: Video,
+        startTime: TimeInterval? = nil,
+        forceStartTime: Bool = false,
+        context: PlayerPlaybackContext = .standard
+    ) {
+        transitionPlaybackContextIfNeeded(to: context)
+        if context.allowsPersistence {
+            FeedVideoOpenRegistry.shared.markOpenedFromPlayer(video)
+        }
 
         // Live streams have no meaningful resume position - drop any passed one
         // so callers with a stale watch entry cannot seek into the live window.
@@ -1141,8 +1182,18 @@ final class PlayerService {
     ///   - audioStream: Optional separate audio stream (for video-only streams)
     ///   - download: Optional download to load local storyboards and captions from
     ///   - captions: Optional array of external captions (e.g., from WebDAV subtitle files)
-    func openVideo(_ video: Video, stream: Stream, audioStream: Stream? = nil, download: Download? = nil, captions: [Caption] = []) {
-        FeedVideoOpenRegistry.shared.markOpenedFromPlayer(video)
+    func openVideo(
+        _ video: Video,
+        stream: Stream,
+        audioStream: Stream? = nil,
+        download: Download? = nil,
+        captions: [Caption] = [],
+        context: PlayerPlaybackContext = .standard
+    ) {
+        transitionPlaybackContextIfNeeded(to: context)
+        if context.allowsPersistence {
+            FeedVideoOpenRegistry.shared.markOpenedFromPlayer(video)
+        }
 
         // Check if MPV PiP is active - if so, don't expand the player
         #if os(iOS) || os(macOS)
@@ -1186,7 +1237,7 @@ final class PlayerService {
         LoggingService.shared.logPlayer("openVideo with stream called - download: \(resolvedDownload != nil ? "present" : "nil")")
 
         currentPlayTask = Task {
-            await play(video: video, stream: stream, audioStream: audioStream)
+            await play(video: video, stream: stream, audioStream: audioStream, context: context)
             // Note: Storyboards are now loaded in play() for all downloaded videos
 
             // Load local caption if download has caption
@@ -2878,7 +2929,8 @@ final class PlayerService {
     }
 
     private func saveProgress() {
-        guard settingsManager?.incognitoModeEnabled != true,
+        guard state.playbackContext.allowsPersistence,
+              settingsManager?.incognitoModeEnabled != true,
               settingsManager?.saveWatchHistory != false else { return }
 
         guard let video = state.currentVideo,
@@ -2895,7 +2947,8 @@ final class PlayerService {
     /// Saves progress as 100% completed when video finishes naturally.
     /// This ensures the watch history shows full completion instead of ~99%.
     private func saveProgressAsCompleted() {
-        guard settingsManager?.incognitoModeEnabled != true,
+        guard state.playbackContext.allowsPersistence,
+              settingsManager?.incognitoModeEnabled != true,
               settingsManager?.saveWatchHistory != false,
               let video = state.currentVideo else { return }
 
@@ -2921,7 +2974,8 @@ final class PlayerService {
     /// Saves progress and triggers iCloud sync for watch history.
     /// Call this when video playback ends or switches to a different video.
     private func saveProgressAndSync() {
-        guard settingsManager?.incognitoModeEnabled != true,
+        guard state.playbackContext.allowsPersistence,
+              settingsManager?.incognitoModeEnabled != true,
               settingsManager?.saveWatchHistory != false else { return }
 
         guard let video = state.currentVideo,
@@ -3240,6 +3294,7 @@ extension PlayerService: PlayerBackendDelegate {
 
     /// Called when a video starts playing to trigger proactive continuation loading.
     func notifyVideoStarted() {
+        guard state.playbackContext.allowsQueueStorage else { return }
         queueManager?.onVideoStarted()
     }
 
