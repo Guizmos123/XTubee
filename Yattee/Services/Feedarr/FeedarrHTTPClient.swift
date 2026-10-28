@@ -50,21 +50,56 @@ enum FeedarrHTTPError: Error, LocalizedError, Equatable, Sendable {
 
 protocol FeedarrHTTPTransport: Sendable {
     func data(for request: URLRequest) async throws -> (Data, URLResponse)
+    func data(for request: URLRequest, maximumResponseSize: Int) async throws -> (Data, URLResponse)
 }
 
-final class URLSessionFeedarrTransport: NSObject, FeedarrHTTPTransport, URLSessionTaskDelegate, @unchecked Sendable {
-    private let configuration: URLSessionConfiguration
-    private lazy var session = URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
+extension FeedarrHTTPTransport {
+    func data(for request: URLRequest, maximumResponseSize: Int) async throws -> (Data, URLResponse) {
+        let result = try await data(for: request)
+        guard result.0.count <= maximumResponseSize else {
+            throw FeedarrHTTPError.responseTooLarge(maximumBytes: maximumResponseSize)
+        }
+        return result
+    }
+}
+
+final class URLSessionFeedarrTransport: FeedarrHTTPTransport, Sendable {
+    private let session: URLSession
 
     init(configuration: URLSessionConfiguration = .ephemeral) {
-        self.configuration = configuration
-        super.init()
+        let isolated = configuration.copy() as! URLSessionConfiguration
+        isolated.urlCredentialStorage = nil
+        isolated.httpCookieStorage = nil
+        isolated.httpShouldSetCookies = false
+        isolated.urlCache = nil
+        session = URLSession(configuration: isolated, delegate: FeedarrSessionDelegate(), delegateQueue: nil)
     }
+
+    deinit { session.invalidateAndCancel() }
 
     func data(for request: URLRequest) async throws -> (Data, URLResponse) {
-        try await session.data(for: request)
+        try await data(for: request, maximumResponseSize: FeedarrHTTPClient.defaultMaximumResponseSize)
     }
 
+    func data(for request: URLRequest, maximumResponseSize: Int) async throws -> (Data, URLResponse) {
+        let (bytes, response) = try await session.bytes(for: request)
+        defer { bytes.task.cancel() }
+        guard response.expectedContentLength <= Int64(maximumResponseSize) else {
+            throw FeedarrHTTPError.responseTooLarge(maximumBytes: maximumResponseSize)
+        }
+        var data = Data()
+        for try await byte in bytes {
+            try Task.checkCancellation()
+            guard data.count < maximumResponseSize else {
+                throw FeedarrHTTPError.responseTooLarge(maximumBytes: maximumResponseSize)
+            }
+            data.append(byte)
+        }
+        return (data, response)
+    }
+}
+
+private final class FeedarrSessionDelegate: NSObject, URLSessionTaskDelegate, Sendable {
     func urlSession(
         _ session: URLSession,
         task: URLSessionTask,
@@ -137,6 +172,13 @@ struct FeedarrHTTPClient: Sendable {
     }
 
     func get(pathComponents: [String], queryItems: [URLQueryItem] = []) async throws -> Data {
+        let (data, response) = try await getResponse(pathComponents: pathComponents, queryItems: queryItems)
+        try validateStatus(response)
+        return data
+    }
+
+    /// Bounded response access for catalogue ProblemDetails; authentication stays centralized here.
+    func getResponse(pathComponents: [String], queryItems: [URLQueryItem] = []) async throws -> (Data, HTTPURLResponse) {
         if Task.isCancelled { throw FeedarrHTTPError.cancelled }
         let url = try endpointURL(pathComponents: pathComponents, queryItems: queryItems)
         var request = URLRequest(url: url)
@@ -150,19 +192,18 @@ struct FeedarrHTTPClient: Sendable {
         }
 
         do {
-            let (data, response) = try await transport.data(for: request)
+            let (data, response) = try await transport.data(for: request, maximumResponseSize: maximumResponseSize)
             try Task.checkCancellation()
             guard let response = response as? HTTPURLResponse else {
                 throw FeedarrHTTPError.invalidHTTPResponse
             }
-            if (300...399).contains(response.statusCode) {
+            if (300...399).contains(response.statusCode) || response.url?.origin != url.origin {
                 throw FeedarrHTTPError.redirectForbidden
             }
-            try validateStatus(response)
             guard data.count <= maximumResponseSize else {
                 throw FeedarrHTTPError.responseTooLarge(maximumBytes: maximumResponseSize)
             }
-            return data
+            return (data, response)
         } catch let error as FeedarrHTTPError {
             throw error
         } catch is CancellationError {
@@ -188,7 +229,7 @@ struct FeedarrHTTPClient: Sendable {
         return url
     }
 
-    private func validateStatus(_ response: HTTPURLResponse) throws {
+    func validateStatus(_ response: HTTPURLResponse) throws {
         switch response.statusCode {
         case 200: return
         case 401: throw FeedarrHTTPError.unauthorized
