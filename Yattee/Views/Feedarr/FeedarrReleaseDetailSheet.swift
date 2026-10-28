@@ -107,8 +107,7 @@ struct FeedarrReleaseDetailSheet: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            qualityBadges
-            if let tracker { trackerBadge(tracker) }
+            HStack(spacing: 6) { qualityBadges }
         }
     }
 
@@ -139,7 +138,7 @@ struct FeedarrReleaseDetailSheet: View {
 
     @ViewBuilder
     private var releaseInformation: some View {
-        if technicalTitle != nil || !releaseGroups.isEmpty {
+        if technicalTitle != nil || !releaseGroups.isEmpty || tracker != nil {
             GroupBox {
                 VStack(alignment: .leading, spacing: 16) {
                     if let technicalTitle {
@@ -158,7 +157,11 @@ struct FeedarrReleaseDetailSheet: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.top, 8)
             } label: {
-                Text(AppLocalization.string("feedarr.detail.information")).accessibilityAddTraits(.isHeader)
+                HStack {
+                    Text(AppLocalization.string("feedarr.detail.information")).accessibilityAddTraits(.isHeader)
+                    Spacer()
+                    if let tracker { trackerBadge(tracker) }
+                }
             }
         }
     }
