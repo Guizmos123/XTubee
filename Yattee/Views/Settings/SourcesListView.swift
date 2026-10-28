@@ -13,12 +13,14 @@ struct SourcesListView: View {
     @State private var sourceToEdit: UnifiedSource?
     @State private var selectedIPTVSource: IPTVSource?
     @State private var iptvSourceToEdit: IPTVSource?
+    @State private var feedarrSourceToEdit: FeedarrSource?
 
     // Delete confirmation state
     @State private var showingDeleteConfirmation = false
     @State private var pendingDeleteInstance: Instance?
     @State private var pendingDeleteSource: MediaSource?
     @State private var pendingDeleteIPTVSource: IPTVSource?
+    @State private var pendingDeleteFeedarrSource: FeedarrSource?
 
     #if os(tvOS)
     @FocusState private var firstSourceFocused: Bool
@@ -36,14 +38,30 @@ struct SourcesListView: View {
         appEnvironment?.iptvSourcesManager
     }
 
+    private var feedarrSourcesManager: FeedarrSourcesManager? {
+        appEnvironment?.feedarrSourcesManager
+    }
+
     private var listStyle: VideoListStyle {
         appEnvironment?.settingsManager.listStyle ?? .inset
     }
 
     private var isEmpty: Bool {
-        (instancesManager?.instances.isEmpty ?? true) &&
-        (iptvSourcesManager?.sources.isEmpty ?? true) &&
-        (mediaSourcesManager?.isEmpty ?? true)
+        Self.hasNoSources(
+            hasRemoteSources: !(instancesManager?.instances.isEmpty ?? true),
+            hasIPTVSources: !(iptvSourcesManager?.sources.isEmpty ?? true),
+            feedarrSource: feedarrSourcesManager?.source,
+            hasFileSources: !(mediaSourcesManager?.isEmpty ?? true)
+        )
+    }
+
+    static func hasNoSources(
+        hasRemoteSources: Bool,
+        hasIPTVSources: Bool,
+        feedarrSource: FeedarrSource?,
+        hasFileSources: Bool
+    ) -> Bool {
+        !hasRemoteSources && !hasIPTVSources && feedarrSource == nil && !hasFileSources
     }
 
     var body: some View {
@@ -145,6 +163,17 @@ struct SourcesListView: View {
             }
         }
         #endif
+        .sheet(item: $feedarrSourceToEdit, onDismiss: reloadFeedarrSource) { source in
+            if let appEnvironment {
+                AddFeedarrSourceView(
+                    manager: appEnvironment.feedarrSourcesManager,
+                    validator: appEnvironment.feedarrConnectionValidator,
+                    credentialsStore: appEnvironment.feedarrCredentialsStore,
+                    editingSource: source
+                )
+            }
+        }
+        .onAppear { reloadFeedarrSource() }
         .confirmationDialog(
             deleteConfirmationMessage,
             isPresented: $showingDeleteConfirmation,
@@ -157,6 +186,15 @@ struct SourcesListView: View {
                 pendingDeleteInstance = nil
                 pendingDeleteSource = nil
                 pendingDeleteIPTVSource = nil
+                pendingDeleteFeedarrSource = nil
+            }
+        }
+        .onChange(of: showingDeleteConfirmation) {
+            if !showingDeleteConfirmation {
+                pendingDeleteInstance = nil
+                pendingDeleteSource = nil
+                pendingDeleteIPTVSource = nil
+                pendingDeleteFeedarrSource = nil
             }
         }
         #if !os(tvOS)
@@ -241,6 +279,7 @@ struct SourcesListView: View {
                     LazyVStack(spacing: 0) {
                         remoteServersSection
                         iptvServersSection
+                        feedarrServersSection
                         fileSourcesSection
                     }
                 }
@@ -400,6 +439,102 @@ struct SourcesListView: View {
         }
         .contentShape(Rectangle())
         .accessibilityIdentifier("sources.row.iptv.\(source.id.uuidString)")
+    }
+
+    // MARK: - Feedarr Servers Section
+
+    @ViewBuilder
+    private var feedarrServersSection: some View {
+        if let manager = feedarrSourcesManager, let source = manager.source {
+            sectionHeader(AppLocalization.string("sources.feedarr.servers"))
+            sectionCard {
+                SourceListRow(isLast: true, listStyle: listStyle) {
+                    Button {
+                        feedarrSourceToEdit = source
+                    } label: {
+                        feedarrSourceRow(source, needsAuthentication: source.usesBasicAuth && manager.loadError != nil)
+                    }
+                    #if os(macOS)
+                    .buttonStyle(.plain)
+                    #else
+                    .foregroundStyle(.primary)
+                    #endif
+                }
+                .swipeActions {
+                    SwipeAction(symbolImage: "pencil", tint: .white, background: .blue) { reset in
+                        feedarrSourceToEdit = source
+                        reset()
+                    }
+                    SwipeAction(symbolImage: "trash", tint: .white, background: .red) { reset in
+                        pendingDeleteFeedarrSource = source
+                        showingDeleteConfirmation = true
+                        reset()
+                    }
+                }
+                .contextMenu {
+                    Button {
+                        feedarrSourceToEdit = source
+                    } label: {
+                        Label(AppLocalization.string("common.edit"), systemImage: "pencil")
+                    }
+                    Button(role: .destructive) {
+                        pendingDeleteFeedarrSource = source
+                        showingDeleteConfirmation = true
+                    } label: {
+                        Label(AppLocalization.string("sources.feedarr.deleteTitle"), systemImage: "trash")
+                    }
+                }
+                #if os(tvOS)
+                .modifier(FirstRowFocusModifier(
+                    isFirst: (instancesManager?.instances.isEmpty ?? true) && (iptvSourcesManager?.sources.isEmpty ?? true),
+                    focus: $firstSourceFocused
+                ))
+                #endif
+            }
+        }
+    }
+
+    private func feedarrSourceRow(_ source: FeedarrSource, needsAuthentication: Bool) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: "server.rack")
+                #if os(macOS)
+                .font(.title3)
+                .frame(width: 24)
+                #else
+                .font(.title2)
+                .frame(width: 32)
+                #endif
+                .foregroundStyle(.tint)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(source.name)
+                    #if os(macOS)
+                    .font(.body)
+                    #else
+                    .font(.headline)
+                    #endif
+                    .foregroundStyle(.primary)
+                Text(source.serverURL.host ?? "Feedarr")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                if needsAuthentication {
+                    Label(AppLocalization.string("sources.feedarr.checkAuthentication"), systemImage: "key.fill")
+                        .font(.caption2)
+                        .foregroundStyle(.orange)
+                } else {
+                    Text(AppLocalization.string("sources.feedarr.configured"))
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            Spacer()
+            #if !os(macOS)
+            Image(systemName: "chevron.right")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+            #endif
+        }
+        .contentShape(Rectangle())
+        .accessibilityIdentifier("sources.row.feedarr.\(source.id.uuidString)")
     }
 
     // MARK: - Section Header
@@ -617,6 +752,7 @@ struct SourcesListView: View {
         let allFileSources = allMediaSources
         let noRemoteServers = instancesManager?.instances.isEmpty ?? true
         let noIPTVServers = iptvSourcesManager?.sources.isEmpty ?? true
+        let noFeedarrServers = feedarrSourcesManager?.source == nil
         if !allFileSources.isEmpty {
             sectionHeader(AppLocalization.string("sources.section.fileSources"))
 
@@ -626,7 +762,7 @@ struct SourcesListView: View {
                     fileSourceRowView(
                         source,
                         isLast: isLast,
-                        isFirst: noRemoteServers && noIPTVServers && index == 0
+                        isFirst: noRemoteServers && noIPTVServers && noFeedarrServers && index == 0
                     )
                 }
             }
@@ -791,6 +927,29 @@ struct SourcesListView: View {
                 }
             }
         }
+
+        if let source = pendingDeleteFeedarrSource, let manager = feedarrSourcesManager {
+            do {
+                try manager.remove(id: source.id)
+            } catch {
+                appEnvironment?.toastManager.showError(
+                    AppLocalization.string("common.error"),
+                    subtitle: AddFeedarrSourceModel.message(for: error)
+                )
+            }
+            pendingDeleteFeedarrSource = nil
+        }
+    }
+
+    private func reloadFeedarrSource() {
+        do {
+            try feedarrSourcesManager?.reload()
+        } catch {
+            appEnvironment?.toastManager.showError(
+                AppLocalization.string("common.error"),
+                subtitle: AddFeedarrSourceModel.message(for: error)
+            )
+        }
     }
 
     private func setActiveIPTVSource(_ source: IPTVSource) {
@@ -812,6 +971,8 @@ struct SourcesListView: View {
             return AppLocalization.string("sources.delete.confirmation.single \(source.name)")
         } else if let source = pendingDeleteIPTVSource {
             return AppLocalization.string("sources.delete.confirmation.single \(source.name)")
+        } else if let source = pendingDeleteFeedarrSource {
+            return AppLocalization.string("sources.feedarr.deleteConfirmation \(source.name)")
         }
         return AppLocalization.string("sources.delete.confirmation")
     }

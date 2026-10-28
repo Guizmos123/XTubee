@@ -10,13 +10,19 @@ struct AddFeedarrSourceView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var model: AddFeedarrSourceModel
     @State private var saveTask: Task<Void, Never>?
+    private let dismissSheet: DismissAction?
+    private let includesNavigationStack: Bool
 
     init(
         manager: FeedarrSourcesManager,
         validator: FeedarrConnectionValidator,
         credentialsStore: FeedarrCredentialsStoring,
-        editingSource: FeedarrSource? = nil
+        editingSource: FeedarrSource? = nil,
+        dismissSheet: DismissAction? = nil,
+        includesNavigationStack: Bool = true
     ) {
+        self.dismissSheet = dismissSheet
+        self.includesNavigationStack = includesNavigationStack
         _model = State(initialValue: AddFeedarrSourceModel(
             manager: manager, validator: validator, credentialsStore: credentialsStore,
             editingSource: editingSource
@@ -24,7 +30,21 @@ struct AddFeedarrSourceView: View {
     }
 
     var body: some View {
-        NavigationStack {
+        Group {
+            if includesNavigationStack {
+                NavigationStack { formContent }
+            } else {
+                formContent
+            }
+        }
+        .task { model.loadCredentials() }
+        .onDisappear {
+            model.cancelValidation()
+            saveTask?.cancel()
+        }
+    }
+
+    private var formContent: some View {
             Form {
                 Section(AppLocalization.string("sources.feedarr.server")) {
                     TextField(AppLocalization.string("sources.field.name"), text: $model.name)
@@ -63,7 +83,7 @@ struct AddFeedarrSourceView: View {
                     }
                     Button {
                         saveTask = Task {
-                            if await model.save() { dismiss() }
+                            if await model.save() { close() }
                         }
                     } label: {
                         HStack {
@@ -86,15 +106,13 @@ struct AddFeedarrSourceView: View {
                 sheetCloseToolbarItem(identifier: "addFeedarrSource.closeButton") {
                     model.cancelValidation()
                     saveTask?.cancel()
-                    dismiss()
+                    close()
                 }
             }
-        }
-        .task { model.loadCredentials() }
-        .onDisappear {
-            model.cancelValidation()
-            saveTask?.cancel()
-        }
+    }
+
+    private func close() {
+        if let dismissSheet { dismissSheet() } else { dismiss() }
     }
 
     @ViewBuilder private var status: some View {

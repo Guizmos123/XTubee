@@ -201,6 +201,36 @@ struct AddSourceView: View {
                 }
 
                 NavigationLink {
+                    if let appEnvironment {
+                        AddFeedarrSourceView(
+                            manager: appEnvironment.feedarrSourcesManager,
+                            validator: appEnvironment.feedarrConnectionValidator,
+                            credentialsStore: appEnvironment.feedarrCredentialsStore,
+                            dismissSheet: dismiss,
+                            includesNavigationStack: false
+                        )
+                    }
+                } label: {
+                    Label {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(AppLocalization.string("sources.feedarr.addTitle"))
+                            if appEnvironment?.feedarrSourcesManager.source != nil {
+                                Text(AppLocalization.string("sources.feedarr.singleServer"))
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    } icon: {
+                        Image(systemName: "server.rack")
+                    }
+                    #if os(tvOS)
+                    .labelStyle(TVSourceRowLabelStyle())
+                    #endif
+                }
+                .disabled(!Self.canAddFeedarr(using: appEnvironment?.feedarrSourcesManager))
+                .accessibilityIdentifier("sources.addFeedarrServer")
+
+                NavigationLink {
                     #if os(tvOS)
                     TVSidebarDetailContainer(
                         systemImage: "globe",
@@ -270,6 +300,11 @@ struct AddSourceView: View {
             discoveredSMBServer = share.host
             navigateToSMB = true
         }
+    }
+
+    static func canAddFeedarr(using manager: FeedarrSourcesManager?) -> Bool {
+        guard let manager else { return false }
+        return manager.source == nil
     }
 
     private func refreshLegacyAccountsVisibility() {

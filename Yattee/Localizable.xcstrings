@@ -1,6 +1,48 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "sources.feedarr.servers" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Feedarr servers" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Serveurs Feedarr" } }
+      }
+    },
+    "sources.feedarr.singleServer" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Only one Feedarr server can be configured." } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Un seul serveur Feedarr peut être configuré." } }
+      }
+    },
+    "sources.feedarr.configured" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Configured" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Configuré" } }
+      }
+    },
+    "sources.feedarr.checkAuthentication" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Check authentication" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Authentification à vérifier" } }
+      }
+    },
+    "sources.feedarr.deleteTitle" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Delete Feedarr server" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Supprimer le serveur Feedarr" } }
+      }
+    },
+    "sources.feedarr.deleteConfirmation %@" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Delete the Feedarr server “%@” and its saved credentials?" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Supprimer le serveur Feedarr « %@ » et ses identifiants enregistrés ?" } }
+      }
+    },
     "sources.feedarr.addTitle" : {
       "extractionState" : "manual",
       "localizations" : {

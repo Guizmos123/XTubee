@@ -23,6 +23,9 @@ final class AppEnvironment {
     let iptvLiveCatalogPersistence: IPTVLiveCatalogPersisting
     let iptvEPGPersistence: IPTVEPGPersisting
     let xtreamCredentialsStore: XtreamCredentialsStore
+    let feedarrCredentialsStore: FeedarrCredentialsStoring
+    let feedarrSourcesManager: FeedarrSourcesManager
+    let feedarrConnectionValidator: FeedarrConnectionValidator
     let contentService: ContentService
     let instanceDetector: InstanceDetector
     let dataManager: DataManager
@@ -90,6 +93,9 @@ final class AppEnvironment {
         iptvSourcesManager: IPTVSourcesManager? = nil,
         iptvLiveFavoritesManager: IPTVLiveFavoritesManager? = nil,
         xtreamCredentialsStore: XtreamCredentialsStore? = nil,
+        feedarrSourcePersistence: FeedarrSourcePersisting? = nil,
+        feedarrCredentialsStore: FeedarrCredentialsStoring? = nil,
+        feedarrConnectionValidator: FeedarrConnectionValidator? = nil,
         dataManager: DataManager,
         navigationCoordinator: NavigationCoordinator? = nil,
         downloadManager: DownloadManager? = nil,
@@ -132,6 +138,14 @@ final class AppEnvironment {
         self.iptvLiveFavoritesManager = favoritesManager
         self.iptvLiveCatalogPersistence = liveCatalogPersistence
         self.iptvEPGPersistence = epgPersistence
+
+        let feedarrCredentials = feedarrCredentialsStore ?? FeedarrCredentialsStore()
+        self.feedarrCredentialsStore = feedarrCredentials
+        self.feedarrSourcesManager = FeedarrSourcesManager(
+            persistence: feedarrSourcePersistence ?? UserDefaultsFeedarrSourcePersistence(),
+            credentialsStore: feedarrCredentials
+        )
+        self.feedarrConnectionValidator = feedarrConnectionValidator ?? FeedarrConnectionValidator()
 
         // Initialize Basic Auth Credentials Manager early (needed for ContentService)
         let basicAuthCreds = BasicAuthCredentialsManager()
