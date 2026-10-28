@@ -16,7 +16,9 @@ struct FeedarrReleasesTests {
         let fixture = try ReleasesFixture()
         let transport = ReleasesHTTPTransport()
         let client = FeedarrAPIClient(sources: fixture.manager, credentialsStore: fixture.credentials, transport: transport)
-        let model = FeedarrReleasesModel(sources: fixture.manager) { try await client.releases(limit: 50, sort: .date, cursor: $0) }
+        let model = FeedarrReleasesModel(sources: fixture.manager) { query, cursor, sort, category in
+            try await client.releases(limit: 50, sort: sort, q: query, unifiedCategory: category?.rawValue, cursor: cursor)
+        }
         model.setVisible(true)
         try await wait { model.hasLoadedInitial }
         model.loadNextPage()
@@ -330,7 +332,7 @@ private struct ReleasesFixture {
         api = ReleasesStub()
         api.automatic = automatic
         let stub = api
-        model = FeedarrReleasesModel(sources: manager) { try await stub.load($0) }
+        model = FeedarrReleasesModel(sources: manager) { _, cursor, _, _ in try await stub.load(cursor) }
     }
 }
 

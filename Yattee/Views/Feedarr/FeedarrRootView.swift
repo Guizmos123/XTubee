@@ -31,6 +31,9 @@ enum FeedarrPage: String, CaseIterable, Identifiable, Sendable {
 @Observable
 final class FeedarrNavigationState {
     var selectedPage: FeedarrPage = .top
+    var selectedRelease: FeedarrRelease?
+
+    func selectRelease(_ release: FeedarrRelease) { selectedRelease = release }
 }
 
 enum FeedarrRootPresentation: Equatable, Sendable {
@@ -54,6 +57,7 @@ struct FeedarrRootView: View {
     @State private var topModel: FeedarrTopModel?
     @State private var releasesModel: FeedarrReleasesModel?
     @State private var posterService: FeedarrPosterService?
+    @State private var trackerService: FeedarrTrackerService?
     @State private var isReleasesSearchPresented = false
 
     private var manager: FeedarrSourcesManager? { appEnvironment?.feedarrSourcesManager }
@@ -99,7 +103,8 @@ struct FeedarrRootView: View {
                         Group {
                             if let topModel, let posterService {
                                 FeedarrTopView(model: topModel, posterService: posterService,
-                                               isVisible: navigation.selectedPage == .top)
+                                               isVisible: navigation.selectedPage == .top,
+                                               onSelectRelease: navigation.selectRelease)
                             } else {
                                 ProgressView()
                             }
@@ -111,7 +116,8 @@ struct FeedarrRootView: View {
                             if let releasesModel, let posterService {
                                 FeedarrReleasesView(model: releasesModel, posterService: posterService,
                                                     isVisible: navigation.selectedPage == .releases,
-                                                    isSearchPresented: $isReleasesSearchPresented)
+                                                    isSearchPresented: $isReleasesSearchPresented,
+                                                    onSelectRelease: navigation.selectRelease)
                             } else {
                                 ProgressView()
                             }
@@ -192,7 +198,11 @@ struct FeedarrRootView: View {
                 try await api.releases(limit: 50, sort: sort, q: query, unifiedCategory: category?.rawValue, cursor: cursor)
             }
             posterService = FeedarrPosterService(sources: sources, credentialsStore: credentials)
+            let trackers = FeedarrTrackerService(sources: sources) { try await api.trackerSources() }
+            trackerService = trackers
+            await trackers.loadIfNeeded()
         }
+        .task(id: manager?.configurationRevision) { await trackerService?.loadIfNeeded() }
         .sheet(isPresented: $showingConfiguration, onDismiss: reloadConfiguration) {
             if let appEnvironment {
                 AddFeedarrSourceView(
@@ -203,8 +213,16 @@ struct FeedarrRootView: View {
                 )
             }
         }
+        .sheet(item: $navigation.selectedRelease) { release in
+            if let posterService {
+                FeedarrReleaseDetailSheet(release: release, posterService: posterService, trackerService: trackerService)
+                    .presentationDetents([.large])
+                    .presentationDragIndicator(.visible)
+            }
+        }
         .onChange(of: manager?.source?.id) {
             navigation.selectedPage = .top
+            navigation.selectedRelease = nil
         }
     }
 

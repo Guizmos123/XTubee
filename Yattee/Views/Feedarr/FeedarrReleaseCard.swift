@@ -2,7 +2,7 @@
 //  FeedarrReleaseCard.swift
 //  Yattee
 //
-//  Passive, reusable catalogue card; all artwork uses the Feedarr pipeline.
+//  Reusable catalogue card; optional selection never routes to video playback.
 //
 
 import Foundation
@@ -11,9 +11,19 @@ import SwiftUI
 struct FeedarrReleaseCard: View {
     let release: FeedarrRelease
     let posterService: FeedarrPosterService
+    var onSelectRelease: ((FeedarrRelease) -> Void)? = nil
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
+        if let onSelectRelease {
+            Button { onSelectRelease(release) } label: { content }
+                .buttonStyle(.plain)
+        } else {
+            content
+        }
+    }
+
+    private var content: some View {
         VStack(alignment: .leading, spacing: 8) {
             FeedarrPosterView(release: release, service: posterService)
                 .clipShape(RoundedRectangle(cornerRadius: 10))
@@ -37,6 +47,7 @@ struct FeedarrReleaseCard: View {
                     .lineLimit(1, reservesSpace: true)
             }
         }
+        .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
     }
 

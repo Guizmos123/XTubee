@@ -12,6 +12,7 @@ struct FeedarrTopView: View {
     let model: FeedarrTopModel
     let posterService: FeedarrPosterService
     let isVisible: Bool
+    var onSelectRelease: ((FeedarrRelease) -> Void)? = nil
     @Environment(\.horizontalSizeClass) private var sizeClass
 
     var body: some View {
@@ -65,7 +66,7 @@ struct FeedarrTopView: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHStack(alignment: .top, spacing: 12) {
                         ForEach(rail.items) { release in
-                            FeedarrReleaseCard(release: release, posterService: posterService)
+                            FeedarrReleaseCard(release: release, posterService: posterService, onSelectRelease: onSelectRelease)
                                 .frame(width: sizeClass == .regular ? 168 : 144, alignment: .topLeading)
                         }
                     }

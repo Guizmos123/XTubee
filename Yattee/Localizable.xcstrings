@@ -1,6 +1,106 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "feedarr.detail.tracker" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "Tracker" } },
+      "fr" : { "stringUnit" : { "state" : "translated", "value" : "Tracker" } }
+    } },
+    "feedarr.detail.title" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "Release details" } },
+      "fr" : { "stringUnit" : { "state" : "translated", "value" : "Détails de la release" } }
+    } },
+    "feedarr.detail.information" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "Release" } },
+      "fr" : { "stringUnit" : { "state" : "translated", "value" : "Release" } }
+    } },
+    "feedarr.detail.media" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "Media information" } },
+      "fr" : { "stringUnit" : { "state" : "translated", "value" : "Informations sur l’œuvre" } }
+    } },
+    "feedarr.detail.overview" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "Synopsis" } },
+      "fr" : { "stringUnit" : { "state" : "translated", "value" : "Synopsis" } }
+    } },
+    "feedarr.detail.statistics" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "Statistics" } },
+      "fr" : { "stringUnit" : { "state" : "translated", "value" : "Statistiques" } }
+    } },
+    "feedarr.detail.cleanTitle" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "Clean title" } },
+      "fr" : { "stringUnit" : { "state" : "translated", "value" : "Titre nettoyé" } }
+    } },
+    "feedarr.detail.year" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "Year" } },
+      "fr" : { "stringUnit" : { "state" : "translated", "value" : "Année" } }
+    } },
+    "feedarr.detail.category" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "Category" } },
+      "fr" : { "stringUnit" : { "state" : "translated", "value" : "Catégorie" } }
+    } },
+    "feedarr.detail.season" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "Season" } },
+      "fr" : { "stringUnit" : { "state" : "translated", "value" : "Saison" } }
+    } },
+    "feedarr.detail.episode" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "Episode" } },
+      "fr" : { "stringUnit" : { "state" : "translated", "value" : "Épisode" } }
+    } },
+    "feedarr.detail.resolution" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "Resolution" } },
+      "fr" : { "stringUnit" : { "state" : "translated", "value" : "Résolution" } }
+    } },
+    "feedarr.detail.codec" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "Codec" } },
+      "fr" : { "stringUnit" : { "state" : "translated", "value" : "Codec" } }
+    } },
+    "feedarr.detail.source" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "Source" } },
+      "fr" : { "stringUnit" : { "state" : "translated", "value" : "Source" } }
+    } },
+    "feedarr.detail.group" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "Release group" } },
+      "fr" : { "stringUnit" : { "state" : "translated", "value" : "Groupe" } }
+    } },
+    "feedarr.detail.size" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "Size" } },
+      "fr" : { "stringUnit" : { "state" : "translated", "value" : "Taille" } }
+    } },
+    "feedarr.detail.published" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "Published" } },
+      "fr" : { "stringUnit" : { "state" : "translated", "value" : "Publication" } }
+    } },
+    "feedarr.detail.rating" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "Rating" } },
+      "fr" : { "stringUnit" : { "state" : "translated", "value" : "Note" } }
+    } },
+    "feedarr.detail.votes" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "Votes" } },
+      "fr" : { "stringUnit" : { "state" : "translated", "value" : "Votes" } }
+    } },
+    "feedarr.detail.genres" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "Genres" } },
+      "fr" : { "stringUnit" : { "state" : "translated", "value" : "Genres" } }
+    } },
+    "feedarr.detail.runtime" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "Runtime (min)" } },
+      "fr" : { "stringUnit" : { "state" : "translated", "value" : "Durée (min)" } }
+    } },
+    "feedarr.detail.releaseDate" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "Release date" } },
+      "fr" : { "stringUnit" : { "state" : "translated", "value" : "Date de sortie" } }
+    } },
+    "feedarr.detail.seeders" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "Seeders" } },
+      "fr" : { "stringUnit" : { "state" : "translated", "value" : "Seeders" } }
+    } },
+    "feedarr.detail.leechers" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "Leechers" } },
+      "fr" : { "stringUnit" : { "state" : "translated", "value" : "Leechers" } }
+    } },
+    "feedarr.detail.grabs" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "Downloads" } },
+      "fr" : { "stringUnit" : { "state" : "translated", "value" : "Téléchargements" } }
+    } },
     "feedarr.releases.filters" : { "extractionState" : "manual", "localizations" : {
       "en" : { "stringUnit" : { "state" : "translated", "value" : "Filters" } },
       "fr" : { "stringUnit" : { "state" : "translated", "value" : "Filtres" } }

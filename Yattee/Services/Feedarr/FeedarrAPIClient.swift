@@ -90,6 +90,10 @@ final class FeedarrAPIClient {
         return try await request("releases", queryItems: items)
     }
 
+    func trackerSources() async throws -> [FeedarrTracker] {
+        try await request("sources", queryItems: [], pathPrefix: ["api"])
+    }
+
     private func credentials(for source: FeedarrSource) throws -> FeedarrCredentials? {
         guard source.usesBasicAuth else { return nil }
         do {
@@ -102,7 +106,7 @@ final class FeedarrAPIClient {
     }
 
     private func request<Response: Decodable & Sendable>(
-        _ endpoint: String, queryItems: [URLQueryItem]
+        _ endpoint: String, queryItems: [URLQueryItem], pathPrefix: [String] = ["api", "feed"]
     ) async throws -> Response {
         if Task.isCancelled { throw FeedarrAPIError.cancelled }
         guard let source = sources.source else { throw FeedarrAPIError.sourceNotConfigured }
@@ -117,7 +121,7 @@ final class FeedarrAPIClient {
                 transport: transport, timeout: timeout, maximumResponseSize: maximumResponseSize
             )
             let (data, response) = try await http.getResponse(
-                pathComponents: ["api", "feed", endpoint], queryItems: queryItems
+                pathComponents: pathPrefix + [endpoint], queryItems: queryItems
             )
             if Task.isCancelled { throw FeedarrAPIError.cancelled }
             try validateActive(source: source, credentials: credentials)

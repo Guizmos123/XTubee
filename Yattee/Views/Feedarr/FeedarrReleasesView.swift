@@ -12,23 +12,60 @@ struct FeedarrReleasesView: View {
     let model: FeedarrReleasesModel
     let posterService: FeedarrPosterService
     let isVisible: Bool
+    @Binding var isSearchPresented: Bool
+    var onSelectRelease: ((FeedarrRelease) -> Void)? = nil
+    @FocusState private var searchFocused: Bool
 
     private let columns = [GridItem(.adaptive(minimum: 144), spacing: 12, alignment: .top)]
 
     var body: some View {
         VStack(spacing: 0) {
+            if isVisible && isSearchPresented {
+                HStack(spacing: 12) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                        TextField(AppLocalization.string("feedarr.releases.search.placeholder"),
+                                  text: Binding(get: { model.searchText }, set: { model.updateSearchText($0) }))
+                            .textFieldStyle(.plain)
+                            .autocorrectionDisabled()
+                            .focused($searchFocused)
+                            .submitLabel(.search)
+                            .accessibilityIdentifier("feedarr.releases.searchField")
+                            .task { searchFocused = true }
+                        if !model.searchText.isEmpty {
+                            Button { model.updateSearchText("") } label: {
+                                Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel(AppLocalization.string("feedarr.releases.search.clear"))
+                        }
+                    }
+                    .padding(10)
+                    .background(.quaternary, in: RoundedRectangle(cornerRadius: 10))
+                    Button(AppLocalization.string("common.cancel")) {
+                        searchFocused = false
+                        isSearchPresented = false
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+            }
             ScrollView {
                 LazyVStack(spacing: 20) {
-                    if model.isLoadingInitial && model.items.isEmpty {
+                    if (model.isLoadingInitial || model.isDebouncing) && model.items.isEmpty {
                         ProgressView(AppLocalization.string("feedarr.releases.loading"))
                             .frame(maxWidth: .infinity).padding(.vertical, 32)
                     }
                     if model.isEmpty && model.failure == nil {
-                        ContentUnavailableView(AppLocalization.string("feedarr.releases.empty"), systemImage: "rectangle.stack")
+                        if let query = model.query {
+                            ContentUnavailableView.search(text: query)
+                        } else {
+                            ContentUnavailableView(AppLocalization.string("feedarr.releases.empty"), systemImage: "rectangle.stack")
+                        }
                     }
                     LazyVGrid(columns: columns, alignment: .leading, spacing: 24) {
                         ForEach(model.items) { release in
-                            FeedarrReleaseCard(release: release, posterService: posterService)
+                            FeedarrReleaseCard(release: release, posterService: posterService, onSelectRelease: onSelectRelease)
                                 .onAppear { model.itemAppeared(release.id) }
                         }
                     }
@@ -42,8 +79,12 @@ struct FeedarrReleasesView: View {
             .refreshable { await model.refresh() }
         }
         .onAppear { model.setVisible(isVisible) }
-        .onChange(of: isVisible) { model.setVisible(isVisible) }
-        .onDisappear { model.setVisible(false) }
+        .onChange(of: isSearchPresented) { if !isSearchPresented { searchFocused = false } }
+        .onChange(of: isVisible) {
+            if !isVisible { searchFocused = false; isSearchPresented = false }
+            model.setVisible(isVisible)
+        }
+        .onDisappear { searchFocused = false; isSearchPresented = false; model.setVisible(false) }
     }
 
     private var footer: some View {
