@@ -17,6 +17,7 @@
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "37C0AAAA00000000AAAA0001"
                BuildableName = "YatteeTopShelf.appex"
+               BlueprintName = "YatteeTopShelf"
                ReferencedContainer = "container:Yattee.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
