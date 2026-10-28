@@ -83,6 +83,8 @@ final class UserDefaultsFeedarrSourcePersistence: FeedarrSourcePersisting {
 final class FeedarrSourcesManager {
     private(set) var source: FeedarrSource?
     private(set) var loadError: FeedarrSourcesManagerError?
+    /// Cache consumers must also observe credentials-only changes (source metadata can remain equal).
+    private(set) var configurationRevision = UUID()
 
     private let persistence: FeedarrSourcePersisting
     private let credentialsStore: FeedarrCredentialsStoring
@@ -111,6 +113,7 @@ final class FeedarrSourcesManager {
         password: String? = nil,
         dateAdded: Date = Date()
     ) throws -> FeedarrSource {
+        defer { configurationRevision = UUID() }
         guard source == nil else { throw FeedarrSourcesManagerError.sourceAlreadyExists }
         let newSource = try FeedarrSource(
             name: name,
@@ -161,6 +164,7 @@ final class FeedarrSourcesManager {
         username: String? = nil,
         password: String? = nil
     ) throws -> FeedarrSource {
+        defer { configurationRevision = UUID() }
         guard let previous = source, previous.id == id else {
             throw FeedarrSourcesManagerError.sourceNotFound
         }
@@ -217,6 +221,7 @@ final class FeedarrSourcesManager {
     }
 
     func remove(id: UUID) throws {
+        defer { configurationRevision = UUID() }
         guard let previous = source, previous.id == id else {
             throw FeedarrSourcesManagerError.sourceNotFound
         }
@@ -246,6 +251,7 @@ final class FeedarrSourcesManager {
     }
 
     func reload() throws {
+        defer { configurationRevision = UUID() }
         let loaded: FeedarrSource?
         do {
             loaded = try persistence.loadSource()
