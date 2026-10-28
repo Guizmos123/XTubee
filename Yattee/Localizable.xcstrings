@@ -1,6 +1,230 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "sources.feedarr.addTitle" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Add a Feedarr server" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Ajouter un serveur Feedarr" } }
+      }
+    },
+    "sources.feedarr.editTitle" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Edit Feedarr server" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Modifier le serveur Feedarr" } }
+      }
+    },
+    "sources.feedarr.server" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Server" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Serveur" } }
+      }
+    },
+    "sources.feedarr.address" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Server address" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Adresse du serveur" } }
+      }
+    },
+    "sources.feedarr.authentication" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Optional authentication" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Authentification facultative" } }
+      }
+    },
+    "sources.feedarr.optionalCredentials" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Leave both fields empty if the server does not require authentication." } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Laissez les deux champs vides si le serveur ne demande pas d’authentification." } }
+      }
+    },
+    "sources.feedarr.connection" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Connection" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Connexion" } }
+      }
+    },
+    "sources.feedarr.verify" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Test connection" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Tester la connexion" } }
+      }
+    },
+    "sources.feedarr.ready" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Test the connection before saving." } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Testez la connexion avant d’enregistrer." } }
+      }
+    },
+    "sources.feedarr.verifying" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Connecting…" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Connexion en cours…" } }
+      }
+    },
+    "sources.feedarr.success" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Connection successful" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Connexion réussie" } }
+      }
+    },
+    "sources.feedarr.save" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Save server" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Enregistrer le serveur" } }
+      }
+    },
+    "sources.feedarr.saveChanges" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Save changes" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Enregistrer les modifications" } }
+      }
+    },
+    "sources.feedarr.nameRequired" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Enter a server name." } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Saisissez un nom de serveur." } }
+      }
+    },
+    "sources.feedarr.invalidURL" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Enter a valid HTTP or HTTPS server address." } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Saisissez une adresse de serveur HTTP ou HTTPS valide." } }
+      }
+    },
+    "sources.feedarr.incompleteCredentials" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Enter both a username and a password, or leave both empty." } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Saisissez l’identifiant et le mot de passe, ou laissez les deux champs vides." } }
+      }
+    },
+    "sources.feedarr.insecureBasicAuth" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Authentication requires HTTPS." } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "L’authentification nécessite HTTPS." } }
+      }
+    },
+    "sources.feedarr.credentialsUnavailable" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "The saved credentials are unavailable. Enter them again." } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Les identifiants enregistrés sont indisponibles. Saisissez-les à nouveau." } }
+      }
+    },
+    "sources.feedarr.unauthorized" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Credentials are missing or incorrect." } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Les identifiants sont absents ou incorrects." } }
+      }
+    },
+    "sources.feedarr.forbidden" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Access denied or server configuration incomplete." } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Accès interdit ou configuration du serveur incomplète." } }
+      }
+    },
+    "sources.feedarr.notFound" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Incorrect address or endpoint not found." } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Adresse incorrecte ou endpoint introuvable." } }
+      }
+    },
+    "sources.feedarr.rateLimited" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Too many attempts. Try again later." } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Trop de tentatives. Réessayez ultérieurement." } }
+      }
+    },
+    "sources.feedarr.unavailable" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "The server is temporarily unavailable." } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Le serveur est temporairement indisponible." } }
+      }
+    },
+    "sources.feedarr.timeout" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "The connection timed out." } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Le délai de connexion est dépassé." } }
+      }
+    },
+    "sources.feedarr.invalidTLS" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "The HTTPS certificate is invalid." } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Le certificat HTTPS est invalide." } }
+      }
+    },
+    "sources.feedarr.cancelled" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Connection test cancelled." } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Test de connexion annulé." } }
+      }
+    },
+    "sources.feedarr.incompatible" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "The server response is not compatible with Feedarr." } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "La réponse du serveur est incompatible avec Feedarr." } }
+      }
+    },
+    "sources.feedarr.networkError" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Unable to connect to the server. Check your network connection." } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Impossible de joindre le serveur. Vérifiez votre connexion réseau." } }
+      }
+    },
+    "sources.feedarr.alreadyExists" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "A Feedarr server is already configured." } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Un serveur Feedarr est déjà configuré." } }
+      }
+    },
+    "sources.feedarr.sourceNotFound" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "The saved Feedarr server no longer exists." } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Le serveur Feedarr enregistré n’existe plus." } }
+      }
+    },
+    "sources.feedarr.rollbackFailure" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Storage consistency could not be restored. Check the saved server configuration." } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "La cohérence du stockage n’a pas pu être rétablie. Vérifiez la configuration enregistrée." } }
+      }
+    },
+    "sources.feedarr.saveFailed" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "The server could not be saved. Try again." } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Le serveur n’a pas pu être enregistré. Réessayez." } }
+      }
+    },
     "" : {
 
     },
