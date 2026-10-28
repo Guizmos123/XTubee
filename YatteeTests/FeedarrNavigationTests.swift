@@ -224,15 +224,14 @@ struct FeedarrNavigationContractTests {
         #expect(unified.contains("case .feedarr:\n            // Preserve the Home fallback instead of pushing video routes into Feedarr.\n            selection = .home\n            homePath.append(destination)"))
     }
 
-    @Test("The root only presents local placeholders and the existing configuration form")
+    @Test("The root hosts Top and preserves the Releases placeholder without playback")
     func noAutomaticNetworkOrPlayback() throws {
         let root = try source("Yattee/Views/Feedarr/FeedarrRootView.swift")
         #expect(root.contains("AddFeedarrSourceView("))
-        #expect(root.contains("placeholder(for: .top)"))
+        #expect(root.contains("FeedarrTopView("))
         #expect(root.contains("placeholder(for: .releases)"))
         #expect(!root.contains("URLSession"))
         #expect(!root.contains(".validate("))
-        #expect(!root.contains(".task"))
         #expect(!root.contains("playerService"))
         #expect(!root.contains("queueManager"))
         #expect(!root.contains(".withNavigationDestinations()"))
