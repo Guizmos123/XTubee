@@ -392,7 +392,7 @@ private actor EPGMockPersistence: IPTVEPGPersisting {
 
     func load(sourceID: UUID) async throws -> IPTVEPGSnapshot? {
         if failLoad { throw IPTVEPGSyncError.cacheReadFailed }
-        snapshots[sourceID]
+        return snapshots[sourceID]
     }
 
     func save(_ snapshot: IPTVEPGSnapshot) async throws {

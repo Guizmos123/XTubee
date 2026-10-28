@@ -283,7 +283,7 @@ struct IPTVLiveCatalogSyncServiceTests {
         delay: Duration? = nil
     ) -> IPTVLiveCatalogSyncService {
         let currentDate = fixture.now
-        IPTVLiveCatalogSyncService(
+        return IPTVLiveCatalogSyncService(
             sourcesManager: fixture.sourcesManager,
             credentialsStore: fixture.credentialsStore,
             persistence: fixture.catalogPersistence,
