@@ -20,17 +20,27 @@ enum TabBarItem: String, CaseIterable, Codable, Identifiable, Sendable {
     case settings
     case continueWatching
     case iptv
+    case feedarr
 
     var id: String { rawValue }
 
     /// Default order for tab bar items.
     static var defaultOrder: [TabBarItem] {
-        [.subscriptions, .channels, .hub, .iptv, .bookmarks, .playlists, .history, .continueWatching, .sources, .downloads, .settings]
+        [.subscriptions, .channels, .hub, .iptv, .feedarr, .bookmarks, .playlists, .history, .continueWatching, .sources, .downloads, .settings]
     }
 
     /// Default visibility (only subscriptions visible by default).
     static var defaultVisibility: [TabBarItem: Bool] {
-        [.subscriptions: false, .channels: false, .hub: true, .iptv: true, .bookmarks: false, .playlists: false, .history: false, .downloads: true, .sources: true, .settings: false, .continueWatching: false]
+        [.subscriptions: false, .channels: false, .hub: true, .iptv: true, .feedarr: true, .bookmarks: false, .playlists: false, .history: false, .downloads: true, .sources: true, .settings: false, .continueWatching: false]
+    }
+
+    /// Keep shared persisted values decodable even where the destination is unavailable.
+    var isAvailableOnCurrentPlatform: Bool {
+        #if os(iOS)
+        true
+        #else
+        self != .feedarr
+        #endif
     }
 
     /// SF Symbol icon name.
@@ -47,6 +57,7 @@ enum TabBarItem: String, CaseIterable, Codable, Identifiable, Sendable {
         case .settings: "gear"
         case .continueWatching: "play.circle"
         case .iptv: "play.tv"
+        case .feedarr: "rectangle.stack"
         }
     }
 
@@ -64,6 +75,7 @@ enum TabBarItem: String, CaseIterable, Codable, Identifiable, Sendable {
         case .settings: AppLocalization.string("tabBar.item.settings")
         case .continueWatching: AppLocalization.string("tabBar.item.continueWatching")
         case .iptv: AppLocalization.string("tabs.iptv")
+        case .feedarr: AppLocalization.string("feedarr.title")
         }
     }
 

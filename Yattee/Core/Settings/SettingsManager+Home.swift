@@ -866,6 +866,7 @@ extension SettingsManager {
     func visibleTabBarItems() -> [TabBarItem] {
         let visibility = tabBarItemVisibility
         return tabBarItemOrder
+            .filter { $0.isAvailableOnCurrentPlatform }
             .filter { visibility[$0] ?? false }
     }
 
@@ -1145,7 +1146,7 @@ extension SettingsManager {
         // Add visible configurable tabs
         let visibility = tabBarItemVisibility
         for item in tabBarItemOrder where visibility[item] ?? false {
-            if let mainItem = SidebarMainItem(tabBarItem: item) {
+            if item.isAvailableOnCurrentPlatform, let mainItem = SidebarMainItem(tabBarItem: item) {
                 tabs.append(mainItem)
             }
         }

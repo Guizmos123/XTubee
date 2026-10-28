@@ -33,7 +33,7 @@ struct TabBarSettingsView: View {
         var tabs: [SidebarMainItem] = [.home, .search]
 
         // Add visible configurable tabs based on current settings
-        for item in itemOrder where itemVisibility[item] ?? false {
+        for item in itemOrder where item.isAvailableOnCurrentPlatform && (itemVisibility[item] ?? false) {
             if let mainItem = SidebarMainItem(tabBarItem: item) {
                 tabs.append(mainItem)
             }
@@ -81,7 +81,7 @@ struct TabBarSettingsView: View {
         Section {
             ForEach(itemOrder) { item in
                 #if os(tvOS)
-                if item != .downloads {
+                if item != .downloads && item.isAvailableOnCurrentPlatform {
                     TabBarItemRow(
                         icon: item.icon,
                         title: item.localizedTitle,
@@ -89,11 +89,13 @@ struct TabBarSettingsView: View {
                     )
                 }
                 #else
-                TabBarItemRow(
-                    icon: item.icon,
-                    title: item.localizedTitle,
-                    isVisible: itemBinding(for: item)
-                )
+                if item.isAvailableOnCurrentPlatform {
+                    TabBarItemRow(
+                        icon: item.icon,
+                        title: item.localizedTitle,
+                        isVisible: itemBinding(for: item)
+                    )
+                }
                 #endif
             }
             .onMove { from, to in

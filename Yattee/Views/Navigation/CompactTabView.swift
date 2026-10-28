@@ -152,8 +152,10 @@ struct CompactTabView: View {
             syncTabToCoordinator(newTab)
         }
         .onChange(of: visibleTabItems) { _, visibleItems in
-            guard selectedTab == Self.hubTabValue, !visibleItems.contains(.hub) else { return }
-            selectedTab = "home"
+            if (selectedTab == Self.hubTabValue && !visibleItems.contains(.hub)) ||
+                (selectedTab == TabBarItem.feedarr.rawValue && !visibleItems.contains(.feedarr)) {
+                selectedTab = "home"
+            }
         }
         .onChange(of: navigationCoordinator?.selectedTab) { _, newTab in
             syncTabFromCoordinator(newTab)
@@ -302,6 +304,9 @@ struct CompactTabView: View {
             continueWatchingPath.append(destination)
         case TabBarItem.iptv.rawValue:
             iptvPath.append(destination)
+        case TabBarItem.feedarr.rawValue:
+            selectedTab = "home"
+            homePath.append(destination)
         default:
             homePath.append(destination)
         }
@@ -369,6 +374,10 @@ struct CompactTabView: View {
                 IPTVRootView()
                     .withNavigationDestinations()
             }
+        case .feedarr:
+            NavigationStack {
+                FeedarrRootView()
+            }
         }
     }
 
@@ -405,6 +414,10 @@ struct CompactTabView: View {
             continueWatchingPath.append(destination)
         case TabBarItem.iptv.rawValue:
             iptvPath.append(destination)
+        case TabBarItem.feedarr.rawValue:
+            // Feedarr never hosts global video destinations.
+            selectedTab = "home"
+            homePath.append(destination)
         default:
             // Fallback to home
             homePath.append(destination)

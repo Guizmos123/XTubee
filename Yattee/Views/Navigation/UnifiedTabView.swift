@@ -125,6 +125,11 @@ struct UnifiedTabView: View {
         .onChange(of: selectedTab) { _, newTab in
             selection = newTab.sidebarItem
         }
+        .onChange(of: visibleMainItems) { _, items in
+            if selection == .feedarr && !items.contains(.feedarr) {
+                selection = .home
+            }
+        }
         .onChange(of: navigationCoordinator?.selectedSidebarItem) { _, newItem in
             guard let item = newItem else { return }
             selection = item
@@ -312,6 +317,14 @@ struct UnifiedTabView: View {
                 }
             } label: {
                 Label(SidebarItem.iptv.title, systemImage: SidebarItem.iptv.systemImage)
+            }
+        case .feedarr:
+            Tab(value: SidebarItem.feedarr) {
+                NavigationStack {
+                    FeedarrRootView()
+                }
+            } label: {
+                Label(SidebarItem.feedarr.title, systemImage: SidebarItem.feedarr.systemImage)
             }
         }
     }
@@ -631,6 +644,9 @@ struct UnifiedTabView: View {
             sourceContent(for: selection)
         case .nowPlaying:
             EmptyView()
+        case .feedarr:
+            // Retained for shared navigation values; unavailable on macOS.
+            EmptyView()
         }
     }
 
@@ -766,7 +782,7 @@ struct UnifiedTabView: View {
             instancePaths[id] = NavigationPath()
         case let .mediaSource(id, _, _):
             mediaSourcePaths[id] = NavigationPath()
-        case .nowPlaying, .downloads:
+        case .nowPlaying, .downloads, .feedarr:
             break
         }
     }
@@ -968,6 +984,10 @@ struct UnifiedTabView: View {
             } label: {
                 Label(SidebarItem.iptv.title, systemImage: SidebarItem.iptv.systemImage)
             }
+        case .feedarr:
+            // Shared Codable values must not create a functional tvOS destination.
+            Tab(value: SidebarItem.feedarr) { EmptyView() }
+                .hidden(true)
         }
     }
 
@@ -1091,6 +1111,10 @@ extension UnifiedTabView {
             continueWatchingPath.append(destination)
         case .iptv:
             iptvPath.append(destination)
+        case .feedarr:
+            // Preserve the Home fallback instead of pushing video routes into Feedarr.
+            selection = .home
+            homePath.append(destination)
         }
         navigationCoordinator?.clearPendingNavigation()
     }

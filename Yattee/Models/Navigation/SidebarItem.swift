@@ -19,6 +19,7 @@ enum SidebarItem: Hashable, Identifiable {
     case openURL
     case remoteControl
     case iptv
+    case feedarr
 
     // MARK: - Dynamic Channel Items
     case channel(channelID: String, name: String, source: ContentSource)
@@ -63,6 +64,8 @@ enum SidebarItem: Hashable, Identifiable {
             return "remote-control"
         case .iptv:
             return "iptv"
+        case .feedarr:
+            return "feedarr"
         case .channel(let channelID, _, let source):
             return "channel-\(source.provider)-\(channelID)"
         case .playlist(let id, _):
@@ -110,6 +113,8 @@ enum SidebarItem: Hashable, Identifiable {
             return AppLocalization.string("sidebar.mainItem.remoteControl")
         case .iptv:
             return AppLocalization.string("tabs.iptv")
+        case .feedarr:
+            return AppLocalization.string("feedarr.title")
         case .channel(_, let name, _):
             return name
         case .playlist(_, let title):
@@ -155,6 +160,8 @@ enum SidebarItem: Hashable, Identifiable {
             return "antenna.radiowaves.left.and.right"
         case .iptv:
             return "play.tv"
+        case .feedarr:
+            return "rectangle.stack"
         case .channel:
             return "person.circle"
         case .playlist:
@@ -186,7 +193,7 @@ enum SidebarItem: Hashable, Identifiable {
     /// Returns nil for items that are root views (home, search) which don't push.
     func navigationDestination() -> NavigationDestination? {
         switch self {
-        case .home, .hub, .search, .sources, .settings, .nowPlaying, .openURL, .remoteControl, .iptv:
+        case .home, .hub, .search, .sources, .settings, .nowPlaying, .openURL, .remoteControl, .iptv, .feedarr:
             // These are root tabs, not push destinations
             return nil
         case .channel(let channelID, _, let source):
@@ -220,7 +227,7 @@ enum SidebarItem: Hashable, Identifiable {
     /// Whether this is a fixed navigation item (always visible).
     var isFixedNavigation: Bool {
         switch self {
-        case .home, .hub, .search, .sources, .settings, .nowPlaying, .openURL, .remoteControl, .iptv:
+        case .home, .hub, .search, .sources, .settings, .nowPlaying, .openURL, .remoteControl, .iptv, .feedarr:
             return true
         default:
             return false

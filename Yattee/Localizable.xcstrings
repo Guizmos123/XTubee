@@ -1,6 +1,69 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "feedarr.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Feedarr" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Feedarr" } }
+      }
+    },
+    "feedarr.page.top" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Top 24h" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Top 24h" } }
+      }
+    },
+    "feedarr.page.releases" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Releases" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Releases" } }
+      }
+    },
+    "feedarr.empty.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "No Feedarr server" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Aucun serveur Feedarr" } }
+      }
+    },
+    "feedarr.empty.description" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Configure a Feedarr server to access Top 24h and Releases." } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Configurez un serveur Feedarr pour accéder au Top 24h et aux Releases." } }
+      }
+    },
+    "feedarr.placeholder.description" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "This page will be available in a future update." } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Cette page sera disponible lors d’une prochaine étape." } }
+      }
+    },
+    "feedarr.configurationError.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Check Feedarr configuration" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Configuration Feedarr à vérifier" } }
+      }
+    },
+    "feedarr.configurationError.description" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "The saved server configuration could not be read. Retry without replacing the saved data." } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "La configuration du serveur enregistré ne peut pas être lue. Réessayez sans remplacer les données enregistrées." } }
+      }
+    },
+    "feedarr.retry" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Retry" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Réessayer" } }
+      }
+    },
     "sources.feedarr.servers" : {
       "extractionState" : "manual",
       "localizations" : {

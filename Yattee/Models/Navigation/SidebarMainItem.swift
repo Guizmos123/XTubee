@@ -24,12 +24,13 @@ enum SidebarMainItem: String, CaseIterable, Codable, Identifiable, Sendable {
     case remoteControl
     case continueWatching
     case iptv
+    case feedarr
 
     var id: String { rawValue }
 
     /// Default order for sidebar main items.
     static var defaultOrder: [SidebarMainItem] {
-        [.search, .home, .hub, .iptv, .subscriptions, .bookmarks, .history, .channels, .playlists, .sources, .openURL, .remoteControl, .downloads, .continueWatching, .settings]
+        [.search, .home, .hub, .iptv, .feedarr, .subscriptions, .bookmarks, .history, .channels, .playlists, .sources, .openURL, .remoteControl, .downloads, .continueWatching, .settings]
     }
 
     /// Default visibility (all visible except subscriptions and channels).
@@ -50,7 +51,8 @@ enum SidebarMainItem: String, CaseIterable, Codable, Identifiable, Sendable {
             .openURL: false,
             .remoteControl: true,
             .continueWatching: false,
-            .iptv: true
+            .iptv: true,
+            .feedarr: true
         ]
         #else
         [
@@ -68,7 +70,8 @@ enum SidebarMainItem: String, CaseIterable, Codable, Identifiable, Sendable {
             .openURL: false,
             .remoteControl: false,
             .continueWatching: false,
-            .iptv: true
+            .iptv: true,
+            .feedarr: true
         ]
         #endif
     }
@@ -91,6 +94,7 @@ enum SidebarMainItem: String, CaseIterable, Codable, Identifiable, Sendable {
         case .remoteControl: "antenna.radiowaves.left.and.right"
         case .continueWatching: "play.circle"
         case .iptv: "play.tv"
+        case .feedarr: "rectangle.stack"
         }
     }
 
@@ -112,6 +116,7 @@ enum SidebarMainItem: String, CaseIterable, Codable, Identifiable, Sendable {
         case .remoteControl: AppLocalization.string("sidebar.mainItem.remoteControl")
         case .continueWatching: AppLocalization.string("sidebar.mainItem.continueWatching")
         case .iptv: AppLocalization.string("tabs.iptv")
+        case .feedarr: AppLocalization.string("feedarr.title")
         }
     }
 
@@ -128,6 +133,8 @@ enum SidebarMainItem: String, CaseIterable, Codable, Identifiable, Sendable {
     /// Whether this item is available on the current platform.
     var isAvailableOnCurrentPlatform: Bool {
         switch self {
+        case .feedarr:
+            return TabBarItem.feedarr.isAvailableOnCurrentPlatform
         case .downloads:
             #if os(tvOS)
             return false
@@ -166,6 +173,7 @@ enum SidebarMainItem: String, CaseIterable, Codable, Identifiable, Sendable {
         case .remoteControl: return "remote-control"
         case .continueWatching: return "continue-watching"
         case .iptv: return TabBarItem.iptv.rawValue
+        case .feedarr: return TabBarItem.feedarr.rawValue
         }
     }
 
@@ -187,6 +195,7 @@ enum SidebarMainItem: String, CaseIterable, Codable, Identifiable, Sendable {
         case .remoteControl: return .remoteControl
         case .continueWatching: return .continueWatching
         case .iptv: return .iptv
+        case .feedarr: return .feedarr
         }
     }
 
@@ -204,6 +213,7 @@ enum SidebarMainItem: String, CaseIterable, Codable, Identifiable, Sendable {
         case .settings: self = .settings
         case .continueWatching: self = .continueWatching
         case .iptv: self = .iptv
+        case .feedarr: self = .feedarr
         }
     }
 }
