@@ -1,6 +1,83 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "feedarr.sort.recent" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Most recent" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Plus récentes" } }
+      }
+    },
+    "feedarr.sort.date" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Publication date" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Date de publication" } }
+      }
+    },
+    "feedarr.sort.seeders" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Seeders" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Seeders" } }
+      }
+    },
+    "feedarr.sort.grabs" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Downloads" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Téléchargements" } }
+      }
+    },
+    "feedarr.sort.score" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Score" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Score" } }
+      }
+    },
+    "feedarr.category.films" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Films" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Films" } }
+      }
+    },
+    "feedarr.category.series" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "TV series" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Séries" } }
+      }
+    },
+    "feedarr.category.emissions" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "TV shows" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Émissions" } }
+      }
+    },
+    "feedarr.category.games" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "PC games" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Jeux PC" } }
+      }
+    },
+    "feedarr.category.animation" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Animation" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Animations" } }
+      }
+    },
+    "feedarr.category.spectacle" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Live shows" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Spectacles" } }
+      }
+    },
     "feedarr.title" : {
       "extractionState" : "manual",
       "localizations" : {
