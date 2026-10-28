@@ -179,13 +179,21 @@ struct FeedarrHTTPClient: Sendable {
 
     /// Bounded response access for catalogue ProblemDetails; authentication stays centralized here.
     func getResponse(pathComponents: [String], queryItems: [URLQueryItem] = []) async throws -> (Data, HTTPURLResponse) {
+        try await response(pathComponents: pathComponents, queryItems: queryItems, downloading: false)
+    }
+
+    func downloadResponse(pathComponents: [String]) async throws -> (Data, HTTPURLResponse) {
+        try await response(pathComponents: pathComponents, queryItems: [], downloading: true)
+    }
+
+    private func response(pathComponents: [String], queryItems: [URLQueryItem], downloading: Bool) async throws -> (Data, HTTPURLResponse) {
         if Task.isCancelled { throw FeedarrHTTPError.cancelled }
         let url = try endpointURL(pathComponents: pathComponents, queryItems: queryItems)
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.timeoutInterval = timeout
         request.cachePolicy = .reloadIgnoringLocalCacheData
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue(downloading ? "application/x-bittorrent, application/octet-stream" : "application/json", forHTTPHeaderField: "Accept")
         if let credentials {
             let value = Data("\(credentials.username):\(credentials.password)".utf8).base64EncodedString()
             request.setValue("Basic \(value)", forHTTPHeaderField: "Authorization")
@@ -197,7 +205,10 @@ struct FeedarrHTTPClient: Sendable {
             guard let response = response as? HTTPURLResponse else {
                 throw FeedarrHTTPError.invalidHTTPResponse
             }
-            if (300...399).contains(response.statusCode) || response.url?.origin != url.origin {
+            // The session refuses non-HTTP redirects. Only expose a magnet to the download caller.
+            let magnet = downloading && response.statusCode == 302 &&
+                response.value(forHTTPHeaderField: "Location").flatMap(URL.init(string:))?.scheme?.lowercased() == "magnet"
+            if ((300...399).contains(response.statusCode) && !magnet) || response.url?.origin != url.origin {
                 throw FeedarrHTTPError.redirectForbidden
             }
             guard data.count <= maximumResponseSize else {

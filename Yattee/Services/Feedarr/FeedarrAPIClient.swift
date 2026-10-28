@@ -94,6 +94,33 @@ final class FeedarrAPIClient {
         try await request("sources", queryItems: [], pathPrefix: ["api"])
     }
 
+    /// Binary response, with a separate bound and no JSON decoding.
+    func torrentResponse(releaseID: Int64) async throws -> (Data, HTTPURLResponse) {
+        guard !Task.isCancelled else { throw FeedarrAPIError.cancelled }
+        guard let source = sources.source else { throw FeedarrAPIError.sourceNotConfigured }
+        guard sources.loadError == nil else { throw FeedarrAPIError.configurationUnavailable }
+        let credentials = try credentials(for: source)
+        do {
+            let http = try FeedarrHTTPClient(
+                serverURL: source.serverURL.absoluteString,
+                username: credentials?.username, password: credentials?.password,
+                transport: transport, timeout: 60, maximumResponseSize: FeedarrTorrentService.maximumBytes
+            )
+            let result = try await http.downloadResponse(pathComponents: ["api", "releases", String(releaseID), "download"])
+            try Task.checkCancellation()
+            try validateActive(source: source, credentials: credentials)
+            if result.1.statusCode != 302 { try http.validateStatus(result.1) }
+            return result
+        } catch {
+            if Task.isCancelled || error is CancellationError || (error as? FeedarrHTTPError) == .cancelled {
+                throw FeedarrAPIError.cancelled
+            }
+            try validateActive(source: source, credentials: credentials)
+            if let error = error as? FeedarrHTTPError { throw FeedarrAPIError.transport(error) }
+            throw error
+        }
+    }
+
     private func credentials(for source: FeedarrSource) throws -> FeedarrCredentials? {
         guard source.usesBasicAuth else { return nil }
         do {

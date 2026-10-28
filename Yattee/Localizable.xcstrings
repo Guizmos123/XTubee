@@ -1,6 +1,46 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "feedarr.download.title" : { "extractionState" : "manual", "localizations" : {
+      "en" : {"stringUnit": {"state": "translated", "value": "Download torrent"}},
+      "fr" : {"stringUnit": {"state": "translated", "value": "Télécharger le torrent"}}
+    } },
+    "feedarr.download.magnetTitle" : { "extractionState" : "manual", "localizations" : {
+      "en" : {"stringUnit": {"state": "translated", "value": "Magnet link"}},
+      "fr" : {"stringUnit": {"state": "translated", "value": "Lien magnet"}}
+    } },
+    "feedarr.download.copyMagnet" : { "extractionState" : "manual", "localizations" : {
+      "en" : {"stringUnit": {"state": "translated", "value": "Copy link"}},
+      "fr" : {"stringUnit": {"state": "translated", "value": "Copier le lien"}}
+    } },
+    "feedarr.download.magnetMessage" : { "extractionState" : "manual", "localizations" : {
+      "en" : {"stringUnit": {"state": "translated", "value": "Feedarr returned a magnet link, not a torrent file. Copy it to use it in a compatible application."}},
+      "fr" : {"stringUnit": {"state": "translated", "value": "Feedarr a renvoyé un lien magnet, pas un fichier torrent. Copiez-le pour l’utiliser dans une application compatible."}}
+    } },
+    "feedarr.download.failed" : { "extractionState" : "manual", "localizations" : {
+      "en" : {"stringUnit": {"state": "translated", "value": "Download failed"}},
+      "fr" : {"stringUnit": {"state": "translated", "value": "Échec du téléchargement"}}
+    } },
+    "feedarr.download.retry" : { "extractionState" : "manual", "localizations" : {
+      "en" : {"stringUnit": {"state": "translated", "value": "Retry"}},
+      "fr" : {"stringUnit": {"state": "translated", "value": "Réessayer"}}
+    } },
+    "feedarr.download.errorMessage" : { "extractionState" : "manual", "localizations" : {
+      "en" : {"stringUnit": {"state": "translated", "value": "The torrent could not be retrieved. Check the connection and credentials, then try again."}},
+      "fr" : {"stringUnit": {"state": "translated", "value": "Le torrent n’a pas pu être récupéré. Vérifiez la connexion et les identifiants, puis réessayez."}}
+    } },
+    "feedarr.download.invalid" : { "extractionState" : "manual", "localizations" : {
+      "en" : {"stringUnit": {"state": "translated", "value": "The response is not a valid torrent."}},
+      "fr" : {"stringUnit": {"state": "translated", "value": "La réponse n’est pas un torrent valide."}}
+    } },
+    "feedarr.download.invalidMagnet" : { "extractionState" : "manual", "localizations" : {
+      "en" : {"stringUnit": {"state": "translated", "value": "The magnet link is invalid."}},
+      "fr" : {"stringUnit": {"state": "translated", "value": "Le lien magnet est invalide."}}
+    } },
+    "feedarr.download.fileError" : { "extractionState" : "manual", "localizations" : {
+      "en" : {"stringUnit": {"state": "translated", "value": "The temporary torrent file could not be created."}},
+      "fr" : {"stringUnit": {"state": "translated", "value": "Le fichier torrent temporaire n’a pas pu être créé."}}
+    } },
     "feedarr.detail.tracker" : { "extractionState" : "manual", "localizations" : {
       "en" : { "stringUnit" : { "state" : "translated", "value" : "Tracker" } },
       "fr" : { "stringUnit" : { "state" : "translated", "value" : "Tracker" } }

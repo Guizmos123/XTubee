@@ -16,6 +16,14 @@ struct FeedarrReleaseDetailSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.horizontalSizeClass) private var sizeClass
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.appEnvironment) private var appEnvironment
+    @State private var downloadTask: Task<Void, Never>?
+    @State private var downloadToken = UUID()
+    @State private var torrentFile: URL?
+    @State private var showingExport = false
+    @State private var magnetLink: String?
+    @State private var showingMagnet = false
+    @State private var downloadFailed = false
 
     private var metadata: FeedarrReleaseDetailMetadata { FeedarrReleaseDetailMetadata(release: release) }
     private var tracker: FeedarrTracker? { trackerService?.tracker(for: release.sourceId) }
@@ -26,7 +34,15 @@ struct FeedarrReleaseDetailSheet: View {
                 VStack(alignment: .leading, spacing: 24) {
                     HStack(alignment: .top, spacing: 16) {
                         poster
-                        primaryInformation.frame(maxWidth: .infinity, alignment: .leading)
+                        VStack(alignment: .leading, spacing: 12) {
+                            primaryInformation
+                            Spacer(minLength: 0)
+                            HStack {
+                                Spacer(minLength: 0)
+                                downloadAction
+                            }
+                        }
+                        .frame(maxWidth: .infinity, minHeight: (sizeClass == .regular ? 180 : 125) * 1.5, alignment: .topLeading)
                     }
                     releaseInformation
                     statistics
@@ -50,6 +66,25 @@ struct FeedarrReleaseDetailSheet: View {
             }
             .task { await trackerService?.loadIfNeeded() }
             .refreshable { await trackerService?.refresh() }
+            .sheet(isPresented: $showingExport, onDismiss: cleanUpTorrent) {
+                if let torrentFile { ShareSheet(items: [torrentFile]) }
+            }
+            .alert(AppLocalization.string("feedarr.download.magnetTitle"), isPresented: $showingMagnet) {
+                Button(AppLocalization.string("feedarr.download.copyMagnet")) {
+                    if let magnetLink { UIPasteboard.general.string = magnetLink }
+                    magnetLink = nil
+                }
+                Button(AppLocalization.string("common.cancel"), role: .cancel) { magnetLink = nil }
+            } message: { Text(AppLocalization.string("feedarr.download.magnetMessage")) }
+            .alert(AppLocalization.string("feedarr.download.failed"), isPresented: $downloadFailed) {
+                Button(AppLocalization.string("feedarr.download.retry")) { downloadTorrent() }
+                Button(AppLocalization.string("common.cancel"), role: .cancel) {}
+            } message: { Text(AppLocalization.string("feedarr.download.errorMessage")) }
+            .onDisappear { cancelDownload() }
+            .onChange(of: appEnvironment?.feedarrSourcesManager.configurationRevision) { _, _ in
+                cancelDownload()
+                showingExport = false
+            }
             .reactiveNavigationTitle(AppLocalization.string("feedarr.detail.title"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -59,6 +94,67 @@ struct FeedarrReleaseDetailSheet: View {
                 }
             }
         }
+    }
+
+    private var downloadAction: some View {
+        Button(action: downloadTorrent) {
+            ZStack {
+                if downloadTask != nil {
+                    ProgressView().tint(.blue)
+                } else {
+                    Image(systemName: "arrow.down")
+                        .font(.body.weight(.semibold))
+                }
+            }
+            .foregroundStyle(.blue)
+            .frame(width: 44, height: 44)
+            .background(Color.blue.opacity(0.12), in: Circle())
+            .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(AppLocalization.string("feedarr.download.title"))
+        .disabled(downloadTask != nil || showingExport || appEnvironment?.feedarrSourcesManager.source == nil)
+    }
+
+    private func downloadTorrent() {
+        guard downloadTask == nil, let manager = appEnvironment?.feedarrSourcesManager else { return }
+        let token = UUID()
+        downloadToken = token
+        downloadFailed = false
+        let service = FeedarrTorrentService(api: FeedarrAPIClient(sources: manager))
+        downloadTask = Task {
+            defer { if downloadToken == token { downloadTask = nil } }
+            do {
+                let result = try await service.download(releaseID: release.id)
+                guard !Task.isCancelled, downloadToken == token else {
+                    if case .file(let url) = result { FeedarrTorrentService.cleanUp(url) }
+                    return
+                }
+                switch result {
+                case .file(let url): torrentFile = url; showingExport = true
+                case .magnet(let link): magnetLink = link; showingMagnet = true
+                }
+            } catch {
+                guard !Task.isCancelled, downloadToken == token,
+                      (error as? FeedarrAPIError) != .cancelled,
+                      (error as? FeedarrAPIError) != .obsoleteResponse else { return }
+                downloadFailed = true
+            }
+        }
+    }
+
+    private func cleanUpTorrent() {
+        if let torrentFile { FeedarrTorrentService.cleanUp(torrentFile) }
+        torrentFile = nil
+    }
+
+    private func cancelDownload() {
+        downloadToken = UUID()
+        downloadTask?.cancel()
+        downloadTask = nil
+        magnetLink = nil
+        showingMagnet = false
+        cleanUpTorrent()
     }
 
     private var poster: some View {
