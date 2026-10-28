@@ -1,6 +1,58 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "feedarr.top.global" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "Global Top 5" } },
+      "fr" : { "stringUnit" : { "state" : "translated", "value" : "Top 5 global" } }
+    } },
+    "feedarr.top.sort" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "Sort Top 24h" } },
+      "fr" : { "stringUnit" : { "state" : "translated", "value" : "Trier le Top 24h" } }
+    } },
+    "feedarr.top.loading" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "Loading Top 24h…" } },
+      "fr" : { "stringUnit" : { "state" : "translated", "value" : "Chargement du Top 24h…" } }
+    } },
+    "feedarr.top.untitled" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "Untitled release" } },
+      "fr" : { "stringUnit" : { "state" : "translated", "value" : "Release sans titre" } }
+    } },
+    "feedarr.top.rail.empty" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "No releases in this category." } },
+      "fr" : { "stringUnit" : { "state" : "translated", "value" : "Aucune release dans cette catégorie." } }
+    } },
+    "feedarr.top.empty.title" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "No releases in the last 24 hours" } },
+      "fr" : { "stringUnit" : { "state" : "translated", "value" : "Aucune release ces dernières 24 heures" } }
+    } },
+    "feedarr.top.empty.description" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "Pull to refresh and check for new releases." } },
+      "fr" : { "stringUnit" : { "state" : "translated", "value" : "Tirez pour actualiser et rechercher de nouvelles releases." } }
+    } },
+    "feedarr.top.error.title" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "Top 24h unavailable" } },
+      "fr" : { "stringUnit" : { "state" : "translated", "value" : "Top 24h indisponible" } }
+    } },
+    "feedarr.top.error.offline" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "Unable to reach Feedarr. Check your connection and server." } },
+      "fr" : { "stringUnit" : { "state" : "translated", "value" : "Feedarr est injoignable. Vérifiez votre connexion et le serveur." } }
+    } },
+    "feedarr.top.error.authentication" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "Check the credentials in your Feedarr source settings." } },
+      "fr" : { "stringUnit" : { "state" : "translated", "value" : "Vérifiez les identifiants dans les réglages de la source Feedarr." } }
+    } },
+    "feedarr.top.error.invalidResponse" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "Feedarr returned an incompatible response. Try again later." } },
+      "fr" : { "stringUnit" : { "state" : "translated", "value" : "La réponse de Feedarr est incompatible. Réessayez plus tard." } }
+    } },
+    "feedarr.top.error.server" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "Feedarr could not load this ranking. Try again later." } },
+      "fr" : { "stringUnit" : { "state" : "translated", "value" : "Feedarr ne peut pas charger ce classement. Réessayez plus tard." } }
+    } },
+    "feedarr.top.error.other" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "Unable to load Top 24h. Check your Feedarr settings or try again." } },
+      "fr" : { "stringUnit" : { "state" : "translated", "value" : "Impossible de charger le Top 24h. Vérifiez les réglages Feedarr ou réessayez." } }
+    } },
     "feedarr.sort.recent" : {
       "extractionState" : "manual",
       "localizations" : {

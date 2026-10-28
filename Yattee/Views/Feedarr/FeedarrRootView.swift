@@ -2,7 +2,7 @@
 //  FeedarrRootView.swift
 //  Yattee
 //
-//  iOS Feedarr navigation shell. Catalogue pages intentionally perform no requests.
+//  iOS Feedarr navigation shell with retained Top state between segments.
 //
 
 import Foundation
@@ -51,6 +51,8 @@ struct FeedarrRootView: View {
     @Environment(\.appEnvironment) private var appEnvironment
     @State private var navigation = FeedarrNavigationState()
     @State private var showingConfiguration = false
+    @State private var topModel: FeedarrTopModel?
+    @State private var posterService: FeedarrPosterService?
 
     private var manager: FeedarrSourcesManager? { appEnvironment?.feedarrSourcesManager }
 
@@ -87,11 +89,19 @@ struct FeedarrRootView: View {
                     .labelsHidden()
                     .padding(.horizontal, 16)
                     .padding(.top, 10)
+                    .padding(.bottom, 12)
                     .accessibilityIdentifier("feedarr.pagePicker")
 
                     // Both page identities stay mounted when the segment changes.
                     ZStack {
-                        placeholder(for: .top)
+                        Group {
+                            if let topModel, let posterService {
+                                FeedarrTopView(model: topModel, posterService: posterService,
+                                               isVisible: navigation.selectedPage == .top)
+                            } else {
+                                ProgressView()
+                            }
+                        }
                             .opacity(navigation.selectedPage == .top ? 1 : 0)
                             .allowsHitTesting(navigation.selectedPage == .top)
                             .accessibilityHidden(navigation.selectedPage != .top)
@@ -104,7 +114,34 @@ struct FeedarrRootView: View {
             }
         }
         .reactiveNavigationTitle(AppLocalization.string("feedarr.title"))
-        .navigationBarTitleDisplayMode(.inline)
+        .toolbarTitleDisplayMode(.inlineLarge)
+        .toolbar {
+            if presentation == .configured, navigation.selectedPage == .top, let topModel {
+                ToolbarItem(placement: .primaryAction) {
+                    Menu {
+                        Picker(AppLocalization.string("feedarr.top.sort"), selection: Binding(
+                            get: { topModel.selectedSort }, set: { topModel.selectSort($0) }
+                        )) {
+                            ForEach([FeedarrTopSort.score, .recent, .seeders, .grabs]) { sort in
+                                Text(sort.localizedTitle).tag(sort)
+                            }
+                        }
+                    } label: {
+                        Label(AppLocalization.string("feedarr.top.sort"), systemImage: "slider.horizontal.3")
+                    }
+                }
+            }
+        }
+        .task {
+            guard topModel == nil, let appEnvironment else { return }
+            let sources = appEnvironment.feedarrSourcesManager
+            let credentials = appEnvironment.feedarrCredentialsStore
+            let api = FeedarrAPIClient(sources: sources, credentialsStore: credentials)
+            topModel = FeedarrTopModel(sources: sources) { sort in
+                try await api.top(hours: 24, take: 5, perCategoryTake: 5, sort: sort)
+            }
+            posterService = FeedarrPosterService(sources: sources, credentialsStore: credentials)
+        }
         .sheet(isPresented: $showingConfiguration, onDismiss: reloadConfiguration) {
             if let appEnvironment {
                 AddFeedarrSourceView(
