@@ -52,6 +52,7 @@ struct FeedarrRootView: View {
     @State private var navigation = FeedarrNavigationState()
     @State private var showingConfiguration = false
     @State private var topModel: FeedarrTopModel?
+    @State private var releasesModel: FeedarrReleasesModel?
     @State private var posterService: FeedarrPosterService?
 
     private var manager: FeedarrSourcesManager? { appEnvironment?.feedarrSourcesManager }
@@ -105,7 +106,14 @@ struct FeedarrRootView: View {
                             .opacity(navigation.selectedPage == .top ? 1 : 0)
                             .allowsHitTesting(navigation.selectedPage == .top)
                             .accessibilityHidden(navigation.selectedPage != .top)
-                        placeholder(for: .releases)
+                        Group {
+                            if let releasesModel, let posterService {
+                                FeedarrReleasesView(model: releasesModel, posterService: posterService,
+                                                    isVisible: navigation.selectedPage == .releases)
+                            } else {
+                                ProgressView()
+                            }
+                        }
                             .opacity(navigation.selectedPage == .releases ? 1 : 0)
                             .allowsHitTesting(navigation.selectedPage == .releases)
                             .accessibilityHidden(navigation.selectedPage != .releases)
@@ -140,6 +148,9 @@ struct FeedarrRootView: View {
             topModel = FeedarrTopModel(sources: sources) { sort in
                 try await api.top(hours: 24, take: 5, perCategoryTake: 5, sort: sort)
             }
+            releasesModel = FeedarrReleasesModel(sources: sources) { cursor in
+                try await api.releases(limit: 50, sort: .date, cursor: cursor)
+            }
             posterService = FeedarrPosterService(sources: sources, credentialsStore: credentials)
         }
         .sheet(isPresented: $showingConfiguration, onDismiss: reloadConfiguration) {
@@ -154,14 +165,6 @@ struct FeedarrRootView: View {
         }
         .onChange(of: manager?.source?.id) {
             navigation.selectedPage = .top
-        }
-    }
-
-    private func placeholder(for page: FeedarrPage) -> some View {
-        ContentUnavailableView {
-            Label(page.title, systemImage: page.systemImage)
-        } description: {
-            Text(AppLocalization.string("feedarr.placeholder.description"))
         }
     }
 

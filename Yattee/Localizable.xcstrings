@@ -1,6 +1,42 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "feedarr.releases.loading" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "Loading releases…" } },
+      "fr" : { "stringUnit" : { "state" : "translated", "value" : "Chargement des releases…" } }
+    } },
+    "feedarr.releases.loadingMore" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "Loading more releases…" } },
+      "fr" : { "stringUnit" : { "state" : "translated", "value" : "Chargement des releases suivantes…" } }
+    } },
+    "feedarr.releases.empty" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "No releases available" } },
+      "fr" : { "stringUnit" : { "state" : "translated", "value" : "Aucune release disponible" } }
+    } },
+    "feedarr.releases.end" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "End of catalogue" } },
+      "fr" : { "stringUnit" : { "state" : "translated", "value" : "Fin du catalogue" } }
+    } },
+    "feedarr.releases.error.offline" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "Unable to reach Feedarr. Check your connection and try again." } },
+      "fr" : { "stringUnit" : { "state" : "translated", "value" : "Feedarr est injoignable. Vérifiez votre connexion puis réessayez." } }
+    } },
+    "feedarr.releases.error.authentication" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "Check the credentials in your Feedarr source settings." } },
+      "fr" : { "stringUnit" : { "state" : "translated", "value" : "Vérifiez les identifiants dans les réglages de la source Feedarr." } }
+    } },
+    "feedarr.releases.error.invalidResponse" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "Feedarr returned an incompatible catalogue page. Try again." } },
+      "fr" : { "stringUnit" : { "state" : "translated", "value" : "Feedarr a renvoyé une page de catalogue incompatible. Réessayez." } }
+    } },
+    "feedarr.releases.error.server" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "Feedarr could not load this page. Try again later." } },
+      "fr" : { "stringUnit" : { "state" : "translated", "value" : "Feedarr ne peut pas charger cette page. Réessayez plus tard." } }
+    } },
+    "feedarr.releases.error.other" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "Unable to load releases. Check your Feedarr settings or try again." } },
+      "fr" : { "stringUnit" : { "state" : "translated", "value" : "Impossible de charger les releases. Vérifiez les réglages Feedarr ou réessayez." } }
+    } },
     "feedarr.top.global" : { "extractionState" : "manual", "localizations" : {
       "en" : { "stringUnit" : { "state" : "translated", "value" : "Global Top 5" } },
       "fr" : { "stringUnit" : { "state" : "translated", "value" : "Top 5 global" } }
