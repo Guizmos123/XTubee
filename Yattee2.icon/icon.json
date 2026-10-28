@@ -4,7 +4,7 @@
       "layers" : [
         {
           "hidden" : false,
-          "image-name" : "YaTubee-Default-Light.png",
+          "image-name" : "AltRound.png",
           "name" : "YaTubee Default",
           "position" : {
             "scale" : 1.15,
@@ -15,6 +15,10 @@
           }
         }
       ],
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.5
+      },
       "translucency" : {
         "enabled" : false,
         "value" : 0
