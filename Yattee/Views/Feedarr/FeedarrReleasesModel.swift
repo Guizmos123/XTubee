@@ -36,7 +36,8 @@ enum FeedarrReleasesFailure: Equatable, Sendable {
 @MainActor
 @Observable
 final class FeedarrReleasesModel {
-    typealias LoadPage = @MainActor @Sendable (String?) async throws -> FeedarrReleasesResponse
+    typealias LoadPage = @MainActor @Sendable (_ query: String?, _ cursor: String?, _ sort: FeedarrReleasesSort, _ category: FeedarrTopCategory?) async throws -> FeedarrReleasesResponse
+    typealias Debounce = @Sendable () async throws -> Void
 
     private(set) var items: [FeedarrRelease] = []
     private(set) var hasLoadedInitial = false
@@ -49,6 +50,11 @@ final class FeedarrReleasesModel {
     private(set) var failure: FeedarrReleasesFailure?
     /// Changes only when replacing the catalogue, never when changing segments or appending.
     private(set) var catalogGeneration = UUID()
+    private(set) var searchText = ""
+    private(set) var query: String?
+    private(set) var isDebouncing = false
+    private(set) var selectedSort: FeedarrReleasesSort = .date
+    private(set) var selectedCategory: FeedarrTopCategory?
 
     @ObservationIgnored private let sources: FeedarrSourcesManager
     @ObservationIgnored private let loadPage: LoadPage
@@ -59,10 +65,15 @@ final class FeedarrReleasesModel {
     @ObservationIgnored private var identifiers: Set<Int64> = []
     @ObservationIgnored private var consumedCursors: Set<String> = []
     @ObservationIgnored private var failedRequest: Request?
+    @ObservationIgnored private let debounce: Debounce
+    @ObservationIgnored private var debounceTask: Task<Void, Never>?
 
-    init(sources: FeedarrSourcesManager, loadPage: @escaping LoadPage) {
+    init(sources: FeedarrSourcesManager,
+         debounce: @escaping Debounce = { try await Task.sleep(for: .milliseconds(300)) },
+         loadPage: @escaping LoadPage) {
         self.sources = sources
         self.loadPage = loadPage
+        self.debounce = debounce
         revision = sources.configurationRevision
         observeConfiguration()
     }
@@ -70,6 +81,50 @@ final class FeedarrReleasesModel {
     var isLoading: Bool { isLoadingInitial || isLoadingNextPage }
     var isEmpty: Bool { hasLoadedInitial && items.isEmpty }
     var isAtEnd: Bool { hasLoadedInitial && !hasMore }
+    var hasActiveFilters: Bool { selectedSort != .date || selectedCategory != nil }
+
+    func selectSort(_ sort: FeedarrReleasesSort) {
+        guard sort != selectedSort else { return }
+        selectedSort = sort
+        reloadForFilterChange()
+    }
+
+    func selectCategory(_ category: FeedarrTopCategory?) {
+        guard category != selectedCategory else { return }
+        selectedCategory = category
+        reloadForFilterChange()
+    }
+
+    private func reloadForFilterChange() {
+        debounceTask?.cancel()
+        debounceTask = nil
+        isDebouncing = false
+        cancelRequest()
+        resetCatalogue()
+        synchronizeConfiguration(reload: false)
+        loadIfNeeded()
+    }
+
+    func updateSearchText(_ text: String) {
+        searchText = text
+        let normalized = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let nextQuery = normalized.isEmpty ? nil : normalized
+        guard query != nextQuery else { return }
+        query = nextQuery
+        debounceTask?.cancel()
+        cancelRequest()
+        resetCatalogue()
+        isDebouncing = true
+        let wait = debounce
+        debounceTask = Task { [weak self] in
+            try? await wait()
+            guard !Task.isCancelled, let self else { return }
+            self.isDebouncing = false
+            self.debounceTask = nil
+            self.synchronizeConfiguration(reload: false)
+            self.loadIfNeeded()
+        }
+    }
 
     func setVisible(_ visible: Bool) {
         self.visible = visible
@@ -97,6 +152,9 @@ final class FeedarrReleasesModel {
     func refresh() async {
         synchronizeConfiguration(reload: false)
         guard visible, configured else { return }
+        debounceTask?.cancel()
+        debounceTask = nil
+        isDebouncing = false
         cancelRequest()
         guard let task = start(.first) else { return }
         await withTaskCancellationHandler { await task.value } onCancel: { task.cancel() }
@@ -117,18 +175,21 @@ final class FeedarrReleasesModel {
 
     @discardableResult
     private func start(_ request: Request) -> Task<Void, Never>? {
-        guard visible, configured, !isLoading else { return nil }
+        guard visible, configured, !isLoading, !isDebouncing else { return nil }
         let token = UUID()
         requestID = token
         let configuration = revision
         let loader = loadPage
+        let query = self.query
+        let sort = selectedSort
+        let category = selectedCategory
         failure = nil
         failedRequest = nil
         isLoadingInitial = request.cursor == nil
         isLoadingNextPage = request.cursor != nil
         let task = Task { [weak self] in
             do {
-                let response = try await loader(request.cursor)
+                let response = try await loader(query, request.cursor, sort, category)
                 guard let self, self.accepts(token, configuration: configuration) else { return }
                 self.finishLoading()
                 guard !Task.isCancelled else { return }
@@ -189,6 +250,11 @@ final class FeedarrReleasesModel {
         guard revision != sources.configurationRevision else { return }
         revision = sources.configurationRevision
         cancelRequest()
+        resetCatalogue()
+        if reload { loadIfNeeded() }
+    }
+
+    private func resetCatalogue() {
         items = []
         identifiers = []
         consumedCursors = []
@@ -199,7 +265,6 @@ final class FeedarrReleasesModel {
         failure = nil
         failedRequest = nil
         catalogGeneration = UUID()
-        if reload { loadIfNeeded() }
     }
 
     private func observeConfiguration() {

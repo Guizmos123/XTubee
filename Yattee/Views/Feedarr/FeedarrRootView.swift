@@ -54,6 +54,7 @@ struct FeedarrRootView: View {
     @State private var topModel: FeedarrTopModel?
     @State private var releasesModel: FeedarrReleasesModel?
     @State private var posterService: FeedarrPosterService?
+    @State private var isReleasesSearchPresented = false
 
     private var manager: FeedarrSourcesManager? { appEnvironment?.feedarrSourcesManager }
 
@@ -109,7 +110,8 @@ struct FeedarrRootView: View {
                         Group {
                             if let releasesModel, let posterService {
                                 FeedarrReleasesView(model: releasesModel, posterService: posterService,
-                                                    isVisible: navigation.selectedPage == .releases)
+                                                    isVisible: navigation.selectedPage == .releases,
+                                                    isSearchPresented: $isReleasesSearchPresented)
                             } else {
                                 ProgressView()
                             }
@@ -138,6 +140,44 @@ struct FeedarrRootView: View {
                         Label(AppLocalization.string("feedarr.top.sort"), systemImage: "slider.horizontal.3")
                     }
                 }
+            } else if presentation == .configured, navigation.selectedPage == .releases, let releasesModel {
+                ToolbarItemGroup(placement: .primaryAction) {
+                    Button {
+                        isReleasesSearchPresented = true
+                    } label: {
+                        Label(AppLocalization.string("feedarr.releases.search.placeholder"),
+                              systemImage: releasesModel.query == nil ? "magnifyingglass" : "text.magnifyingglass")
+                    }
+                    .accessibilityIdentifier("feedarr.releases.search")
+                    Menu {
+                        Menu(AppLocalization.string("feedarr.releases.filters.sort")) {
+                            Picker(AppLocalization.string("feedarr.releases.filters.sort"), selection: Binding(
+                                get: { releasesModel.selectedSort }, set: { releasesModel.selectSort($0) }
+                            )) {
+                                ForEach(FeedarrReleasesSort.allCases) { sort in
+                                    Text(sort.localizedTitle).tag(sort)
+                                }
+                            }
+                            .pickerStyle(.inline)
+                        }
+                        Menu(AppLocalization.string("feedarr.releases.filters.category")) {
+                            Picker(AppLocalization.string("feedarr.releases.filters.category"), selection: Binding(
+                                get: { releasesModel.selectedCategory }, set: { releasesModel.selectCategory($0) }
+                            )) {
+                                Text(AppLocalization.string("feedarr.releases.filters.all"))
+                                    .tag(Optional<FeedarrTopCategory>.none)
+                                ForEach(FeedarrTopCategory.railOrder) { category in
+                                    Text(category.localizedTitle).tag(Optional(category))
+                                }
+                            }
+                            .pickerStyle(.inline)
+                        }
+                    } label: {
+                        Label(AppLocalization.string("feedarr.releases.filters"), systemImage: "slider.horizontal.3")
+                            .foregroundStyle(releasesModel.hasActiveFilters ? Color.accentColor : Color.primary)
+                    }
+                    .accessibilityIdentifier("feedarr.releases.filters")
+                }
             }
         }
         .task {
@@ -148,8 +188,8 @@ struct FeedarrRootView: View {
             topModel = FeedarrTopModel(sources: sources) { sort in
                 try await api.top(hours: 24, take: 5, perCategoryTake: 5, sort: sort)
             }
-            releasesModel = FeedarrReleasesModel(sources: sources) { cursor in
-                try await api.releases(limit: 50, sort: .date, cursor: cursor)
+            releasesModel = FeedarrReleasesModel(sources: sources) { query, cursor, sort, category in
+                try await api.releases(limit: 50, sort: sort, q: query, unifiedCategory: category?.rawValue, cursor: cursor)
             }
             posterService = FeedarrPosterService(sources: sources, credentialsStore: credentials)
         }

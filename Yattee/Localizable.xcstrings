@@ -1,6 +1,30 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "feedarr.releases.filters" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "Filters" } },
+      "fr" : { "stringUnit" : { "state" : "translated", "value" : "Filtres" } }
+    } },
+    "feedarr.releases.filters.sort" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "Sort by" } },
+      "fr" : { "stringUnit" : { "state" : "translated", "value" : "Trier par" } }
+    } },
+    "feedarr.releases.filters.category" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "Category" } },
+      "fr" : { "stringUnit" : { "state" : "translated", "value" : "Catégorie" } }
+    } },
+    "feedarr.releases.filters.all" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "All" } },
+      "fr" : { "stringUnit" : { "state" : "translated", "value" : "Toutes" } }
+    } },
+    "feedarr.releases.search.clear" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "Clear search" } },
+      "fr" : { "stringUnit" : { "state" : "translated", "value" : "Effacer la recherche" } }
+    } },
+    "feedarr.releases.search.placeholder" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "Search for a release" } },
+      "fr" : { "stringUnit" : { "state" : "translated", "value" : "Rechercher une release" } }
+    } },
     "feedarr.releases.loading" : { "extractionState" : "manual", "localizations" : {
       "en" : { "stringUnit" : { "state" : "translated", "value" : "Loading releases…" } },
       "fr" : { "stringUnit" : { "state" : "translated", "value" : "Chargement des releases…" } }
