@@ -903,7 +903,7 @@ final class PlayerService {
     }
 
     /// Plays a queued video with its stream and caption info.
-    /// Always starts from the beginning (0) since queue items should play fresh.
+    /// Uses saved progress through play() without prompting for a resume action.
     /// Always prefers local downloaded content over pre-loaded network streams.
     /// For media browser videos, resolves stream and captions on-demand.
     private func playQueuedVideo(_ queuedVideo: QueuedVideo) async {
@@ -917,7 +917,7 @@ final class PlayerService {
                 let (stream, captions) = try await resolveMediaSourceStream(for: queuedVideo.video)
                 LoggingService.shared.debug("[SubtitleDebug] resolveMediaSourceStream succeeded with \(captions.count) captions", category: .player)
                 currentDownload = nil
-                await play(video: queuedVideo.video, stream: stream, audioStream: nil, startTime: 0)
+                await play(video: queuedVideo.video, stream: stream, audioStream: nil)
 
                 // Set available captions and auto-select preferred
                 if !captions.isEmpty {
@@ -946,7 +946,7 @@ final class PlayerService {
                         currentDownload = download
                         playedFromDownload = true
                         LoggingService.shared.debug("[Player] Playing queued video \(videoID.videoID) from local download", category: .player)
-                        await play(video: downloadedVideo, stream: localStream, audioStream: audioStream, startTime: 0)
+                        await play(video: downloadedVideo, stream: localStream, audioStream: audioStream)
                         if let dislikeCount {
                             state.dislikeCount = dislikeCount
                         }
@@ -985,7 +985,7 @@ final class PlayerService {
                 stream = nil
                 audioStream = nil
             }
-            await play(video: queuedVideo.video, stream: stream, audioStream: audioStream, startTime: 0)
+            await play(video: queuedVideo.video, stream: stream, audioStream: audioStream)
             // Load captions if available
             if !queuedVideo.captions.isEmpty {
                 self.availableCaptions = queuedVideo.captions
