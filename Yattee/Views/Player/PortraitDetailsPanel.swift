@@ -607,6 +607,9 @@ private struct IPTVPlayerDetailsView: View {
                 at: timeline.date
             )
             let isFavorite = favoritesManager?.isFavorite(presentation.group) == true
+            let currentDescription = normalizedDescription(
+                nowAndNext?.currentProgram?.description
+            )
             let upcomingPrograms: [EPGProgram] = if let associator,
                                                     let association,
                                                     let channelID = nowAndNext?.channelID {
@@ -681,7 +684,7 @@ private struct IPTVPlayerDetailsView: View {
                             .progressViewStyle(.linear)
                             .tint(.accentColor)
 
-                        if let description = normalizedDescription(current.description) {
+                        if let description = currentDescription {
                             Text(description)
                                 .font(.subheadline)
                                 .foregroundStyle(.secondary)
@@ -700,6 +703,13 @@ private struct IPTVPlayerDetailsView: View {
                                 .font(.caption.weight(.medium))
                                 .buttonStyle(.plain)
                             }
+
+                            if !upcomingPrograms.isEmpty {
+                                Divider()
+                                    .padding(.vertical, 3)
+
+                                upcomingProgramsView(upcomingPrograms)
+                            }
                         }
                     }
                     .onChange(of: current) { _, _ in
@@ -707,30 +717,34 @@ private struct IPTVPlayerDetailsView: View {
                     }
                 }
 
-                if !upcomingPrograms.isEmpty {
-                    VStack(alignment: .leading, spacing: 9) {
-                        Label(AppLocalization.string("player.next"), systemImage: "forward.end")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.secondary)
-
-                        ForEach(Array(upcomingPrograms.enumerated()), id: \.offset) { index, program in
-                            if index > 0 {
-                                Divider()
-                            }
-
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text(program.title)
-                                    .font(.subheadline)
-                                Text(schedule(for: program))
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .monospacedDigit()
-                            }
-                        }
-                    }
+                if currentDescription == nil, !upcomingPrograms.isEmpty {
+                    upcomingProgramsView(upcomingPrograms)
                 }
             }
             .padding()
+        }
+    }
+
+    private func upcomingProgramsView(_ programs: [EPGProgram]) -> some View {
+        VStack(alignment: .leading, spacing: 9) {
+            Label(AppLocalization.string("player.next"), systemImage: "forward.end")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+
+            ForEach(Array(programs.enumerated()), id: \.offset) { index, program in
+                if index > 0 {
+                    Divider()
+                }
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(program.title)
+                        .font(.subheadline)
+                    Text(schedule(for: program))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                }
+            }
         }
     }
 

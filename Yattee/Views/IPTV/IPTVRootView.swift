@@ -65,6 +65,7 @@ private extension View {
             self
         }
     }
+
 }
 
 struct IPTVRootView: View {
@@ -311,7 +312,15 @@ struct IPTVRootView: View {
                     .pickerStyle(.segmented)
                     .labelsHidden()
                     .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
+                    .padding(.top, 10)
+
+                    #if os(macOS)
+                    Color(nsColor: .windowBackgroundColor)
+                        .frame(height: 12)
+                    #else
+                    Color(uiColor: .systemBackground)
+                        .frame(height: 12)
+                    #endif
 
                     selectedCatalogSection(catalog: catalog, source: source)
                 }
@@ -385,7 +394,7 @@ struct IPTVRootView: View {
             List {
                 catalogStatusSections
 
-                Section {
+                Section(source.name) {
                     if visibleCategories.isEmpty {
                         Label(
                             AppLocalization.string("iptv.categories.allHidden"),
@@ -442,20 +451,6 @@ struct IPTVRootView: View {
                     }
                 }
 
-                Section {
-                    NavigationLink {
-                        IPTVManageCategoriesView(
-                            sourceID: source.id,
-                            categories: catalog.categories,
-                            hiddenCategoriesJSON: $hiddenCategoriesJSON
-                        )
-                    } label: {
-                        Label(
-                            AppLocalization.string("iptv.categories.manage"),
-                            systemImage: "slider.horizontal.3"
-                        )
-                    }
-                }
             }
             .iptvSearchable(iptvSearchConfiguration)
         }
@@ -537,7 +532,7 @@ struct IPTVRootView: View {
             if !searchChannelGroups.isEmpty {
                 Section(AppLocalization.string("iptv.navigation.channels")) {
                     ForEach(searchChannelGroups) { group in
-                        HStack(spacing: 10) {
+                        ZStack(alignment: .trailing) {
                             Button {
                                 selectSearchResult(group)
                             } label: {
@@ -550,6 +545,7 @@ struct IPTVRootView: View {
                                     VStack(alignment: .leading, spacing: 2) {
                                         Text(group.displayName)
                                             .foregroundStyle(.primary)
+                                            .padding(.trailing, 32)
                                         if let program = programPresentation(for: group) {
                                             IPTVCurrentProgramCompactView(program: program)
                                         }
@@ -562,7 +558,7 @@ struct IPTVRootView: View {
 
                                     Spacer(minLength: 0)
                                 }
-                                .padding(.leading, -4)
+                                .frame(maxWidth: .infinity, alignment: .leading)
                             }
                             .buttonStyle(.plain)
 
@@ -589,6 +585,9 @@ struct IPTVRootView: View {
                                 )
                             )
                         }
+                        .listRowInsets(
+                            EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12)
+                        )
                     }
                 }
             }
@@ -1134,7 +1133,9 @@ private struct IPTVOptionsView: View {
     let favoritesManager: IPTVLiveFavoritesManager?
     @Binding var hiddenCategoriesJSON: String
 
+    @State private var showingCategoriesManager = false
     @State private var showingFavoritesManager = false
+    @State private var showingSourcesManager = false
 
     private var visibleSections: [IPTVRootSection] {
         IPTVRootSection.allCases.filter(isVisible)
@@ -1155,47 +1156,37 @@ private struct IPTVOptionsView: View {
     var body: some View {
         Form {
             Section {
-                if let sourceID {
-                    NavigationLink {
-                        IPTVManageCategoriesView(
-                            sourceID: sourceID,
-                            categories: categories,
-                            hiddenCategoriesJSON: $hiddenCategoriesJSON
-                        )
-                    } label: {
-                        Label(
-                            AppLocalization.string("iptv.categories.manage"),
-                            systemImage: "square.stack.3d.up"
-                        )
-                    }
-                } else {
-                    Button {} label: {
-                        Label(
-                            AppLocalization.string("iptv.categories.manage"),
-                            systemImage: "square.stack.3d.up"
-                        )
-                    }
-                    .disabled(true)
+                Button {
+                    showingCategoriesManager = true
+                } label: {
+                    IPTVOptionRow(
+                        title: AppLocalization.string("iptv.categories.manage"),
+                        systemImage: "square.stack.3d.up"
+                    )
                 }
+                .buttonStyle(.plain)
+                .disabled(sourceID == nil)
 
                 Button {
                     showingFavoritesManager = true
                 } label: {
-                    Label(
-                        AppLocalization.string("iptv.favorites.manage"),
+                    IPTVOptionRow(
+                        title: AppLocalization.string("iptv.favorites.manage"),
                         systemImage: "star"
                     )
                 }
+                .buttonStyle(.plain)
                 .disabled(sourceID == nil || favoritesManager == nil)
 
-                NavigationLink {
-                    SourcesListView()
+                Button {
+                    showingSourcesManager = true
                 } label: {
-                    Label(
-                        AppLocalization.string("iptv.options.manageSources"),
+                    IPTVOptionRow(
+                        title: AppLocalization.string("iptv.options.manageSources"),
                         systemImage: "server.rack"
                     )
                 }
+                .buttonStyle(.plain)
             }
 
             Section(AppLocalization.string("iptv.options.startPage")) {
@@ -1228,6 +1219,18 @@ private struct IPTVOptionsView: View {
             sheetCloseToolbarItem(identifier: "iptvOptions.closeButton") {
                 dismiss()
             }
+        }
+        .navigationDestination(isPresented: $showingCategoriesManager) {
+            if let sourceID {
+                IPTVManageCategoriesView(
+                    sourceID: sourceID,
+                    categories: categories,
+                    hiddenCategoriesJSON: $hiddenCategoriesJSON
+                )
+            }
+        }
+        .navigationDestination(isPresented: $showingSourcesManager) {
+            SourcesListView()
         }
         .sheet(isPresented: $showingFavoritesManager) {
             if let sourceID, let favoritesManager {
@@ -1264,6 +1267,38 @@ private struct IPTVOptionsView: View {
                 }
             }
         )
+    }
+}
+
+private struct IPTVOptionRow: View {
+    let title: String
+    let systemImage: String
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Label(title, systemImage: systemImage)
+                .labelStyle(IPTVOptionLabelStyle())
+
+            Spacer(minLength: 8)
+
+            Image(systemName: "chevron.right")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.tertiary)
+        }
+        .contentShape(Rectangle())
+    }
+}
+
+private struct IPTVOptionLabelStyle: LabelStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(spacing: 8) {
+            configuration.icon
+                .foregroundStyle(Color.accentColor)
+                .frame(width: 22, alignment: .center)
+
+            configuration.title
+                .foregroundStyle(.primary)
+        }
     }
 }
 
@@ -1564,19 +1599,19 @@ private struct IPTVChannelsView: View {
                         }
                     }
                     .padding(.horizontal, 12)
-                    .padding(.vertical, 12)
+                    .padding(.top, 4)
+                    .padding(.bottom, 12)
                 }
                 .iptvSearchable(searchConfiguration)
             } else {
-                List(visibleGroups) { group in
-                    IPTVChannelRow(
-                        group: group,
-                        rowStyle: rowStyle,
-                        isFavorite: favoritesManager.isFavorite(group),
-                        program: programPresentation(for: group),
-                        select: { select(group) },
-                        toggleFavorite: { toggleFavorite(group) }
-                    )
+                List {
+                    if showsNavigationChrome {
+                        channelListRows(visibleGroups)
+                    } else {
+                        Section(title) {
+                            channelListRows(visibleGroups)
+                        }
+                    }
                 }
                 .iptvSearchable(searchConfiguration)
             }
@@ -1625,6 +1660,23 @@ private struct IPTVChannelsView: View {
             Button(AppLocalization.string("common.ok"), role: .cancel) {}
         } message: {
             Text(favoriteErrorMessage ?? AppLocalization.string("iptv.favorites.error"))
+        }
+    }
+
+    @ViewBuilder
+    private func channelListRows(_ groups: [IPTVLiveChannelGroup]) -> some View {
+        ForEach(groups) { group in
+            IPTVChannelRow(
+                group: group,
+                rowStyle: rowStyle,
+                isFavorite: favoritesManager.isFavorite(group),
+                program: programPresentation(for: group),
+                select: { select(group) },
+                toggleFavorite: { toggleFavorite(group) }
+            )
+            .listRowInsets(
+                EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12)
+            )
         }
     }
 
@@ -1726,7 +1778,7 @@ private struct IPTVChannelRow: View {
     }
 
     var body: some View {
-        HStack(spacing: 12) {
+        ZStack(alignment: .trailing) {
             Button(action: select) {
                 HStack(spacing: 12) {
                     IPTVChannelLogo(url: logoURL)
@@ -1737,6 +1789,7 @@ private struct IPTVChannelRow: View {
                             .font(.body)
                             .foregroundStyle(.primary)
                             .lineLimit(2)
+                            .padding(.trailing, 32)
 
                         if let program {
                             IPTVCurrentProgramCompactView(program: program)
@@ -1745,8 +1798,8 @@ private struct IPTVChannelRow: View {
 
                     Spacer(minLength: 0)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
-                .padding(.leading, -4)
             }
             .buttonStyle(.plain)
 

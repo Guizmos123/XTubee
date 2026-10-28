@@ -95,8 +95,8 @@ struct PlayerPlaybackContextTests {
         )
     }
 
-    private func makeSensitiveStream() -> Stream {
-        Stream(
+    private func makeSensitiveStream() -> XTubee.Stream {
+        XTubee.Stream(
             url: URL(string: "https://server.invalid/live/private-user/private-password/42.m3u8")!,
             format: "m3u8",
             isLive: true,
