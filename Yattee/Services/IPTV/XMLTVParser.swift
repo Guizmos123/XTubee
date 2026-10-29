@@ -242,21 +242,19 @@ private final class XMLTVParserDelegate: NSObject, XMLParserDelegate {
         let description = normalizedText(draft.description)
 
         if let location = programLocations[key] {
-            guard var programs = programsByChannelID[location.channelID],
-                  programs.indices.contains(location.index),
-                  programs[location.index].description == nil,
+            guard programsByChannelID[location.channelID]?.indices.contains(location.index) == true,
+                  let existing = programsByChannelID[location.channelID]?[location.index],
+                  existing.description == nil,
                   let description else {
                 return
             }
-            let existing = programs[location.index]
-            programs[location.index] = EPGProgram(
+            programsByChannelID[location.channelID]?[location.index] = EPGProgram(
                 epgChannelID: existing.epgChannelID,
                 title: existing.title,
                 description: description,
                 start: existing.start,
                 end: existing.end
             )
-            programsByChannelID[location.channelID] = programs
             return
         }
 

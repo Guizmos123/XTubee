@@ -51,6 +51,37 @@ struct XMLTVParserTests {
         #expect(programs.first?.description == "Présentation")
     }
 
+    @Test("Enrichment preserves neighbouring programmes and the first useful description")
+    func enrichmentPreservesNeighboursAndMetadata() throws {
+        let catalog = try parse("""
+        <tv>
+          <channel id="a"><display-name>Channel A</display-name></channel>
+          <channel id="b"><display-name>Channel B</display-name></channel>
+          <programme channel="a" start="20240101130000 +0000" stop="20240101140000 +0000"><title>Later</title></programme>
+          <programme channel="b" start="20240101120000 +0000" stop="20240101130000 +0000"><title>Other</title><desc>Unchanged</desc></programme>
+          <programme channel="a" start="20240101120000 +0000" stop="20240101130000 +0000"><title>Earlier</title></programme>
+          <programme channel="a" start="20240101120000 +0000" stop="20240101130000 +0000"><title>Earlier</title><desc>First description</desc></programme>
+          <programme channel="a" start="20240101130000 +0000" stop="20240101140000 +0000"><title>Later</title><desc>Later description</desc></programme>
+          <programme channel="a" start="20240101120000 +0000" stop="20240101130000 +0000"><title>Earlier</title><desc>Replacement ignored</desc></programme>
+        </tv>
+        """)
+
+        let a = EPGChannelID(rawValue: "a")
+        let b = EPGChannelID(rawValue: "b")
+        let noon = try #require(isoDate("2024-01-01T12:00:00Z"))
+        let one = try #require(isoDate("2024-01-01T13:00:00Z"))
+        let two = try #require(isoDate("2024-01-01T14:00:00Z"))
+        #expect(catalog.channelsByID == [
+            a: EPGChannel(id: a, displayName: "Channel A"),
+            b: EPGChannel(id: b, displayName: "Channel B")
+        ])
+        #expect(catalog.programsByChannelID == [
+            a: [EPGProgram(epgChannelID: a, title: "Earlier", description: "First description", start: noon, end: one),
+                EPGProgram(epgChannelID: a, title: "Later", description: "Later description", start: one, end: two)],
+            b: [EPGProgram(epgChannelID: b, title: "Other", description: "Unchanged", start: noon, end: one)]
+        ])
+    }
+
     @Test("Explicit XMLTV time zones are respected and programmes are sorted")
     func timeZonesAndChronologicalOrder() throws {
         let catalog = try parse("""
