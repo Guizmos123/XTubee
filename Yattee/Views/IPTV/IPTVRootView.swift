@@ -487,35 +487,38 @@ struct IPTVRootView: View {
         searchText.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private var searchCategories: [XtreamLiveCategory] {
-        guard !normalizedSearchText.isEmpty,
+    private func searchCategories(matching query: String) -> [XtreamLiveCategory] {
+        guard !query.isEmpty,
               let catalog = catalogState.catalog else {
             return []
         }
         return catalog.categories.filter {
-            $0.name.localizedCaseInsensitiveContains(normalizedSearchText)
+            $0.name.localizedCaseInsensitiveContains(query)
         }
     }
 
-    private var searchChannelGroups: [IPTVLiveChannelGroup] {
-        guard !normalizedSearchText.isEmpty,
+    private func searchChannelGroups(matching query: String) -> [IPTVLiveChannelGroup] {
+        guard !query.isEmpty,
               groupedCatalogKey == catalogGroupingKey else {
             return []
         }
         return channelGroups.filter {
             !$0.isDecorativeSeparator
-                && $0.displayName.localizedCaseInsensitiveContains(normalizedSearchText)
+                && $0.displayName.localizedCaseInsensitiveContains(query)
         }
     }
 
     @ViewBuilder
     private var globalSearchSuggestions: some View {
-        if !normalizedSearchText.isEmpty,
+        let query = normalizedSearchText
+        if !query.isEmpty,
            let source = activeSource,
            let favoritesManager {
-            if !searchCategories.isEmpty {
+            let categories = searchCategories(matching: query)
+            let groups = searchChannelGroups(matching: query)
+            if !categories.isEmpty {
                 Section(AppLocalization.string("iptv.navigation.categories")) {
-                    ForEach(searchCategories, id: \.categoryID) { category in
+                    ForEach(categories, id: \.categoryID) { category in
                         NavigationLink {
                             IPTVChannelsView(
                                 sourceID: source.id,
@@ -533,9 +536,10 @@ struct IPTVRootView: View {
                 }
             }
 
-            if !searchChannelGroups.isEmpty {
+            if !groups.isEmpty {
                 Section(AppLocalization.string("iptv.navigation.channels")) {
-                    ForEach(searchChannelGroups) { group in
+                    ForEach(groups) { group in
+                        let isFavorite = favoritesManager.isFavorite(group)
                         ZStack(alignment: .trailing) {
                             Button {
                                 selectSearchResult(group)
@@ -570,12 +574,12 @@ struct IPTVRootView: View {
                                 toggleSearchFavorite(group)
                             } label: {
                                 Image(
-                                    systemName: favoritesManager.isFavorite(group)
+                                    systemName: isFavorite
                                         ? "star.fill"
                                         : "star"
                                 )
                                 .foregroundStyle(
-                                    favoritesManager.isFavorite(group)
+                                    isFavorite
                                         ? Color.yellow
                                         : Color.secondary
                                 )
@@ -583,7 +587,7 @@ struct IPTVRootView: View {
                             .buttonStyle(.borderless)
                             .accessibilityLabel(
                                 AppLocalization.string(
-                                    favoritesManager.isFavorite(group)
+                                    isFavorite
                                         ? "iptv.favorites.remove"
                                         : "iptv.favorites.add"
                                 )
@@ -596,7 +600,7 @@ struct IPTVRootView: View {
                 }
             }
 
-            if searchCategories.isEmpty && searchChannelGroups.isEmpty {
+            if categories.isEmpty && groups.isEmpty {
                 Text(AppLocalization.string("iptv.search.noResults"))
                     .foregroundStyle(.secondary)
             }
@@ -1529,14 +1533,13 @@ private struct IPTVChannelsView: View {
     @State private var variantSelection: IPTVVariantSelectionContext?
 
     private var visibleChannelGroups: [IPTVLiveChannelGroup] {
-        let availableGroups = groups.filter { !$0.isDecorativeSeparator }
         switch mode {
         case .all:
-            return availableGroups
+            return groups.filter { !$0.isDecorativeSeparator }
         case .favorites:
-            return favoritesManager.favorites(for: sourceID, in: availableGroups)
+            return favoritesManager.favorites(for: sourceID, in: groups.lazy.filter { !$0.isDecorativeSeparator })
         case .category(let category):
-            return availableGroups.filter { $0.categoryID == category.categoryID }
+            return groups.filter { !$0.isDecorativeSeparator && $0.categoryID == category.categoryID }
         }
     }
 

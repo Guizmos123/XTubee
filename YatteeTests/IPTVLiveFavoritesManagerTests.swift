@@ -175,6 +175,43 @@ struct IPTVLiveFavoritesManagerTests {
         #expect(!manager.isFavorite(favorite))
     }
 
+    @Test("Lazy filtering preserves favorite order, variants, and immediate toggles")
+    func lazyFilteringPreservesResults() throws {
+        let manager = IPTVLiveFavoritesManager(persistence: MockIPTVFavoritesPersistence())
+        let sourceID = UUID()
+        let first = try group(sourceID: sourceID, names: ["TF1 HD", "TF1 FHD"])
+        let second = try group(sourceID: sourceID, names: ["M6 HD"])
+        let separator = try group(sourceID: sourceID, names: ["-----"])
+        let other = try group(sourceID: UUID(), names: ["Arte HD"])
+        for item in [second, separator, first, other] { try manager.toggleFavorite(item) }
+        let groups = [first, separator, other, second]
+        let filtered = groups.lazy.filter { !$0.isDecorativeSeparator }
+
+        #expect(manager.favorites(for: sourceID, in: filtered) == [second, first])
+        #expect(manager.favorites(for: sourceID, in: filtered)
+            == manager.favorites(for: sourceID, in: groups.filter { !$0.isDecorativeSeparator }))
+        try manager.toggleFavorite(second)
+        #expect(manager.favorites(for: sourceID, in: filtered) == [first])
+        try manager.toggleFavorite(second)
+        #expect(manager.favorites(for: sourceID, in: filtered) == [first, second])
+    }
+
+    @Test("A source without favorites does not enumerate the catalogue")
+    func skipsCatalogueWithoutSourceFavorites() throws {
+        let manager = IPTVLiveFavoritesManager(persistence: MockIPTVFavoritesPersistence())
+        let sourceID = UUID()
+        let item = try group(sourceID: sourceID, names: ["TF1 HD"])
+        let counter = FavoriteEnumerationCounter()
+        let groups = CountingFavoriteGroups(groups: [item], counter: counter)
+        #expect(manager.favorites(for: sourceID, in: groups).isEmpty)
+        try manager.toggleFavorite(try group(sourceID: UUID(), names: ["M6 HD"]))
+        #expect(manager.favorites(for: sourceID, in: groups).isEmpty)
+        #expect(counter.value == 0)
+        try manager.toggleFavorite(item)
+        #expect(manager.favorites(for: sourceID, in: groups) == [item])
+        #expect(counter.value == 1)
+    }
+
     private func group(
         sourceID: UUID,
         names: [String],
@@ -206,6 +243,22 @@ struct IPTVLiveFavoritesManagerTests {
         return try #require(
             IPTVLiveChannelGrouper.groups(sourceID: sourceID, streams: decodedStreams).first
         )
+    }
+}
+
+private final class FavoriteEnumerationCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+    var value: Int { lock.withLock { count } }
+    func increment() { lock.withLock { count += 1 } }
+}
+
+private struct CountingFavoriteGroups: Sequence {
+    let groups: [IPTVLiveChannelGroup]
+    let counter: FavoriteEnumerationCounter
+    func makeIterator() -> IndexingIterator<[IPTVLiveChannelGroup]> {
+        counter.increment()
+        return groups.makeIterator()
     }
 }
 

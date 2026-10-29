@@ -122,17 +122,18 @@ final class IPTVLiveFavoritesManager {
     }
 
     /// Resolves available groups without deleting persisted references to absent groups.
-    func favorites(
+    func favorites<Groups: Sequence>(
         for sourceID: UUID,
-        in groups: [IPTVLiveChannelGroup]
-    ) -> [IPTVLiveChannelGroup] {
+        in groups: Groups
+    ) -> [IPTVLiveChannelGroup] where Groups.Element == IPTVLiveChannelGroup {
+        guard favoriteIDs.contains(where: { $0.sourceID == sourceID }) else { return [] }
         var availableGroups: [IPTVLiveChannelGroup.ID: IPTVLiveChannelGroup] = [:]
         for group in groups where group.sourceID == sourceID {
             availableGroups[group.id] = group
         }
-        return favoriteIDs
-            .filter { $0.sourceID == sourceID }
-            .compactMap { availableGroups[$0] }
+        return favoriteIDs.compactMap { id in
+            id.sourceID == sourceID ? availableGroups[id] : nil
+        }
     }
 
     func removeFavorites(for sourceID: UUID) throws {
