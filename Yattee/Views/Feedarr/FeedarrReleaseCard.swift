@@ -28,7 +28,7 @@ struct FeedarrReleaseCard: View {
     }
 
     private var content: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: showsInformation ? 8 : 0) {
             FeedarrPosterView(release: release, service: posterService)
                 .clipShape(RoundedRectangle(cornerRadius: 10))
             if showsInformation {

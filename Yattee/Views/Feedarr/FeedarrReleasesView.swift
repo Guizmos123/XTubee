@@ -28,7 +28,11 @@ struct FeedarrReleasesView: View {
         #else
         let maximum = max(2, maxGridColumns(forWidth: viewWidth))
         #endif
-        return makeGridColumns(count: min(max(2, gridColumns), maximum))
+        return makeGridColumns(count: min(max(2, gridColumns), maximum)).map { column in
+            var column = column
+            if !showsInformation { column.spacing = 6 }
+            return column
+        }
     }
 
     var body: some View {
@@ -76,7 +80,7 @@ struct FeedarrReleasesView: View {
                             ContentUnavailableView(AppLocalization.string("feedarr.releases.empty"), systemImage: "rectangle.stack")
                         }
                     }
-                    LazyVGrid(columns: columns, alignment: .leading, spacing: layout == .grid ? 24 : 12) {
+                    LazyVGrid(columns: columns, alignment: .leading, spacing: layout == .grid ? (showsInformation ? 24 : 6) : 12) {
                         ForEach(model.items) { release in
                             Group {
                                 if layout == .grid {
