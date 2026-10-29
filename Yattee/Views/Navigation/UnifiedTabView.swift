@@ -181,7 +181,7 @@ struct UnifiedTabView: View {
         case .home:
             Tab(value: SidebarItem.home) {
                 NavigationStack(path: $homePath) {
-                    HomeView()
+                    HomeView(onNavigate: { homePath.append($0) })
                         .withNavigationDestinations()
                 }
             } label: {
@@ -191,7 +191,7 @@ struct UnifiedTabView: View {
         case .hub:
             Tab(value: SidebarItem.hub) {
                 NavigationStack(path: $hubPath) {
-                    HomeView(customizationContext: .hub)
+                    HomeView(customizationContext: .hub, onNavigate: { hubPath.append($0) })
                         .withNavigationDestinations()
                 }
             } label: {
@@ -573,11 +573,11 @@ struct UnifiedTabView: View {
         switch selection {
         case .home:
             NavigationStack(path: $homePath) {
-                HomeView().withNavigationDestinations()
+                HomeView(onNavigate: { homePath.append($0) }).withNavigationDestinations()
             }
         case .hub:
             NavigationStack(path: $hubPath) {
-                HomeView(customizationContext: .hub)
+                HomeView(customizationContext: .hub, onNavigate: { hubPath.append($0) })
                     .withNavigationDestinations()
             }
         case .search:
@@ -842,7 +842,7 @@ struct UnifiedTabView: View {
         case .home:
             Tab(value: SidebarItem.home) {
                 NavigationStack(path: $homePath) {
-                    HomeView()
+                    HomeView(onNavigate: { homePath.append($0) })
                         .withNavigationDestinations()
                 }
             } label: {
@@ -852,7 +852,7 @@ struct UnifiedTabView: View {
         case .hub:
             Tab(value: SidebarItem.hub) {
                 NavigationStack(path: $hubPath) {
-                    HomeView(customizationContext: .hub)
+                    HomeView(customizationContext: .hub, onNavigate: { hubPath.append($0) })
                         .withNavigationDestinations()
                 }
             } label: {

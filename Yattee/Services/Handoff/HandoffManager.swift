@@ -226,7 +226,7 @@ final class HandoffManager {
             activity.title = instance.displayName
 
         // Don't create handoff activities for these local-only destinations
-        case .settings, .mediaSources, .mediaSource, .mediaBrowser,
+        case .settings, .sources, .mediaSources, .mediaSource, .mediaBrowser,
              .importSubscriptions, .importPlaylists, .downloadsStorage, .directMedia:
             return false
         }

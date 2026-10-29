@@ -22,8 +22,21 @@ struct HomeView: View {
 
     let customizationContext: HomeCustomizationContext
 
-    init(customizationContext: HomeCustomizationContext = .home) {
+    private let onNavigate: ((NavigationDestination) -> Void)?
+
+    init(customizationContext: HomeCustomizationContext = .home, onNavigate: ((NavigationDestination) -> Void)? = nil) {
         self.customizationContext = customizationContext
+        self.onNavigate = onNavigate
+    }
+
+    /// The presenting stack owns shortcut pushes, including tabs hosted by iOS More.
+    private func navigate(to destination: NavigationDestination) {
+        if let onNavigate {
+            onNavigate(destination)
+            appEnvironment?.handoffManager.updateActivity(for: destination)
+        } else {
+            appEnvironment?.navigationCoordinator.navigate(to: destination)
+        }
     }
 
     @Environment(\.appEnvironment) private var appEnvironment
@@ -643,7 +656,7 @@ struct HomeView: View {
     private var playlistsShortcutCard: some View {
         let state = localStatistics.playlists
         return Button {
-            appEnvironment?.navigationCoordinator.navigate(to: .playlists)
+            navigate(to: .playlists)
         } label: {
             HomeShortcutCardView(
                 icon: "list.bullet.rectangle",
@@ -665,7 +678,7 @@ struct HomeView: View {
     private var bookmarksShortcutCard: some View {
         let state = localStatistics.bookmarks
         return Button {
-            appEnvironment?.navigationCoordinator.navigate(to: .bookmarks)
+            navigate(to: .bookmarks)
         } label: {
             HomeShortcutCardView(
                 icon: "bookmark",
@@ -687,7 +700,7 @@ struct HomeView: View {
     private var continueWatchingShortcutCard: some View {
         let state = localStatistics.continueWatching
         return Button {
-            appEnvironment?.navigationCoordinator.navigate(to: .continueWatching)
+            navigate(to: .continueWatching)
         } label: {
             HomeShortcutCardView(
                 icon: "play.circle",
@@ -709,7 +722,7 @@ struct HomeView: View {
     private var historyShortcutCard: some View {
         let state = localStatistics.history
         return Button {
-            appEnvironment?.navigationCoordinator.navigate(to: .history)
+            navigate(to: .history)
         } label: {
             HomeShortcutCardView(
                 icon: "clock",
@@ -732,7 +745,7 @@ struct HomeView: View {
     private var downloadsShortcutCard: some View {
         let count = downloadManager?.completedDownloads.count ?? 0
         return Button {
-            appEnvironment?.navigationCoordinator.navigate(to: .downloads)
+            navigate(to: .downloads)
         } label: {
             HomeShortcutCardView(
                 icon: "arrow.down.circle",
@@ -750,7 +763,7 @@ struct HomeView: View {
     private var channelsShortcutCard: some View {
         let state = channelsCountState
         return Button {
-            appEnvironment?.navigationCoordinator.navigate(to: .manageChannels)
+            navigate(to: .manageChannels)
         } label: {
             HomeShortcutCardView(
                 icon: "person.2",
@@ -771,7 +784,7 @@ struct HomeView: View {
 
     private var subscriptionsShortcutCard: some View {
         Button {
-            appEnvironment?.navigationCoordinator.navigate(to: .subscriptionsFeed)
+            navigate(to: .subscriptionsFeed)
         } label: {
             HomeShortcutCardView(
                 icon: "play.square.stack",
@@ -795,7 +808,7 @@ struct HomeView: View {
         let instancesCount = appEnvironment?.instancesManager.enabledInstances.count ?? 0
         let count = mediaSourcesCount + instancesCount
         return Button {
-            appEnvironment?.navigationCoordinator.navigate(to: .mediaSources)
+            navigate(to: .sources)
         } label: {
             HomeShortcutCardView(
                 icon: "externaldrive.connected.to.line.below",
@@ -819,7 +832,7 @@ struct HomeView: View {
            instance.isEnabled {
             Button {
                 // Navigate to InstanceBrowseView with the correct tab selected
-                appEnvironment?.navigationCoordinator.navigate(to: .instanceBrowse(instance, initialTab: contentType.toBrowseTab()))
+                navigate(to: .instanceBrowse(instance, initialTab: contentType.toBrowseTab()))
             } label: {
                 HomeShortcutCardView(
                     icon: contentType.icon,
@@ -844,7 +857,7 @@ struct HomeView: View {
            source.isEnabled {
             Button {
                 // Navigate to MediaBrowserView at root path
-                appEnvironment?.navigationCoordinator.navigate(to: .mediaBrowser(source, path: "/"))
+                navigate(to: .mediaBrowser(source, path: "/"))
             } label: {
                 HomeShortcutCardView(
                     icon: source.type.systemImage,
@@ -899,7 +912,7 @@ struct HomeView: View {
     private var playlistsShortcutRow: some View {
         let state = localStatistics.playlists
         return Button {
-            appEnvironment?.navigationCoordinator.navigate(to: .playlists)
+            navigate(to: .playlists)
         } label: {
             HomeShortcutRowView(
                 icon: "list.bullet.rectangle",
@@ -913,7 +926,7 @@ struct HomeView: View {
     private var bookmarksShortcutRow: some View {
         let state = localStatistics.bookmarks
         return Button {
-            appEnvironment?.navigationCoordinator.navigate(to: .bookmarks)
+            navigate(to: .bookmarks)
         } label: {
             HomeShortcutRowView(
                 icon: "bookmark.fill",
@@ -927,7 +940,7 @@ struct HomeView: View {
     private var continueWatchingShortcutRow: some View {
         let state = localStatistics.continueWatching
         return Button {
-            appEnvironment?.navigationCoordinator.navigate(to: .continueWatching)
+            navigate(to: .continueWatching)
         } label: {
             HomeShortcutRowView(
                 icon: "play.circle",
@@ -941,7 +954,7 @@ struct HomeView: View {
     private var historyShortcutRow: some View {
         let state = localStatistics.history
         return Button {
-            appEnvironment?.navigationCoordinator.navigate(to: .history)
+            navigate(to: .history)
         } label: {
             HomeShortcutRowView(
                 icon: "clock",
@@ -956,7 +969,7 @@ struct HomeView: View {
     private var downloadsShortcutRow: some View {
         let count = downloadManager?.completedDownloads.count ?? 0
         return Button {
-            appEnvironment?.navigationCoordinator.navigate(to: .downloads)
+            navigate(to: .downloads)
         } label: {
             HomeShortcutRowView(
                 icon: "arrow.down.circle",
@@ -971,7 +984,7 @@ struct HomeView: View {
     private var channelsShortcutRow: some View {
         let state = channelsCountState
         return Button {
-            appEnvironment?.navigationCoordinator.navigate(to: .manageChannels)
+            navigate(to: .manageChannels)
         } label: {
             HomeShortcutRowView(
                 icon: "person.2",
@@ -984,7 +997,7 @@ struct HomeView: View {
 
     private var subscriptionsShortcutRow: some View {
         Button {
-            appEnvironment?.navigationCoordinator.navigate(to: .subscriptionsFeed)
+            navigate(to: .subscriptionsFeed)
         } label: {
             HomeShortcutRowView(
                 icon: "play.rectangle.on.rectangle",
@@ -1000,7 +1013,7 @@ struct HomeView: View {
         let instancesCount = appEnvironment?.instancesManager.enabledInstances.count ?? 0
         let count = mediaSourcesCount + instancesCount
         return Button {
-            appEnvironment?.navigationCoordinator.navigate(to: .mediaSources)
+            navigate(to: .sources)
         } label: {
             HomeShortcutRowView(
                 icon: "externaldrive.connected.to.line.below",
@@ -1016,7 +1029,7 @@ struct HomeView: View {
         if let instance = appEnvironment?.instancesManager.instances.first(where: { $0.id == instanceID }),
            instance.isEnabled {
             Button {
-                appEnvironment?.navigationCoordinator.navigate(to: .instanceBrowse(instance, initialTab: contentType.toBrowseTab()))
+                navigate(to: .instanceBrowse(instance, initialTab: contentType.toBrowseTab()))
             } label: {
                 HomeShortcutRowView(
                     icon: contentType.icon,
@@ -1033,7 +1046,7 @@ struct HomeView: View {
         if let source = appEnvironment?.mediaSourcesManager.sources.first(where: { $0.id == sourceID }),
            source.isEnabled {
             Button {
-                appEnvironment?.navigationCoordinator.navigate(to: .mediaBrowser(source, path: "/"))
+                navigate(to: .mediaBrowser(source, path: "/"))
             } label: {
                 HomeShortcutRowView(
                     icon: source.type.systemImage,
@@ -1173,7 +1186,7 @@ struct HomeView: View {
 
         return VStack(alignment: .leading, spacing: 0) {
             sectionHeader(title: "home.section.continueWatching") {
-                appEnvironment?.navigationCoordinator.navigate(to: .continueWatching)
+                navigate(to: .continueWatching)
             }
 
             if sectionLayout != .list {
@@ -1230,7 +1243,7 @@ struct HomeView: View {
 
         return VStack(alignment: .leading, spacing: 0) {
             sectionHeader(title: "home.recentFeed.title") {
-                appEnvironment?.navigationCoordinator.navigate(to: .subscriptionsFeed)
+                navigate(to: .subscriptionsFeed)
             }
 
             if sectionLayout != .list {
@@ -1274,7 +1287,7 @@ struct HomeView: View {
 
         return VStack(alignment: .leading, spacing: 0) {
             sectionHeader(title: "home.recentBookmarks.title") {
-                appEnvironment?.navigationCoordinator.navigate(to: .bookmarks)
+                navigate(to: .bookmarks)
             }
 
             if sectionLayout != .list {
@@ -1332,7 +1345,7 @@ struct HomeView: View {
 
         return VStack(alignment: .leading, spacing: 0) {
             sectionHeader(title: "home.recentHistory.title") {
-                appEnvironment?.navigationCoordinator.navigate(to: .history)
+                navigate(to: .history)
             }
 
             if sectionLayout != .list {
@@ -1394,7 +1407,7 @@ struct HomeView: View {
 
         return VStack(alignment: .leading, spacing: 0) {
             sectionHeader(title: "home.recentDownloads.title") {
-                appEnvironment?.navigationCoordinator.navigate(to: .downloads)
+                navigate(to: .downloads)
             }
 
             if sectionLayout != .list {
@@ -1462,7 +1475,7 @@ struct HomeView: View {
                         .foregroundStyle(accentColor)
                     #else
                     Button {
-                        appEnvironment?.navigationCoordinator.navigate(
+                        navigate(
                             to: .instanceBrowse(instance, initialTab: contentType.toBrowseTab())
                         )
                     } label: {

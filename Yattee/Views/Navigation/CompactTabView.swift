@@ -106,7 +106,7 @@ struct CompactTabView: View {
             // Fixed: Home (first)
             Tab(value: "home") {
                 NavigationStack(path: $homePath) {
-                    HomeView()
+                    HomeView(onNavigate: { homePath.append($0) })
                         .withNavigationDestinations()
                 }
             } label: {
@@ -331,7 +331,7 @@ struct CompactTabView: View {
             }
         case .hub:
             NavigationStack(path: $hubPath) {
-                HomeView(customizationContext: .hub)
+                HomeView(customizationContext: .hub, onNavigate: { hubPath.append($0) })
                     .withNavigationDestinations()
             }
         case .bookmarks:

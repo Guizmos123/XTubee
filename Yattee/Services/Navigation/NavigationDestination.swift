@@ -36,6 +36,8 @@ enum NavigationDestination: Hashable {
     case externalChannel(URL)
     /// Direct media URL (mp4, m3u8, etc.) to play without extraction.
     case directMedia(URL)
+    /// Complete source management (YouTube, IPTV, Feedarr and file sources).
+    case sources
     /// Media sources list.
     case mediaSources
     /// Browse a specific media source by ID (for sidebar navigation).
@@ -137,6 +139,8 @@ extension NavigationDestination {
                 source: .extracted(extractor: "external", originalURL: url),
                 channelURL: url
             )
+        case .sources:
+            SourcesListView()
         case .mediaSources:
             MediaSourcesView()
         case .mediaSource(let id):
