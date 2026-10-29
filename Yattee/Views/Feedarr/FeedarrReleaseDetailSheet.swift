@@ -17,6 +17,9 @@ struct FeedarrReleaseDetailSheet: View {
     @Environment(\.horizontalSizeClass) private var sizeClass
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.appEnvironment) private var appEnvironment
+    @Environment(\.openURL) private var openURL
+    @State private var externalLinkTask: Task<Void, Never>?
+    @State private var externalLinkRejected = false
     @State private var downloadTask: Task<Void, Never>?
     @State private var downloadToken = UUID()
     @State private var torrentFile: URL?
@@ -39,6 +42,7 @@ struct FeedarrReleaseDetailSheet: View {
                             Spacer(minLength: 0)
                             HStack {
                                 Spacer(minLength: 0)
+                                informationAction
                                 downloadAction
                             }
                         }
@@ -80,7 +84,14 @@ struct FeedarrReleaseDetailSheet: View {
                 Button(AppLocalization.string("feedarr.download.retry")) { downloadTorrent() }
                 Button(AppLocalization.string("common.cancel"), role: .cancel) {}
             } message: { Text(AppLocalization.string("feedarr.download.errorMessage")) }
-            .onDisappear { cancelDownload() }
+            .alert(AppLocalization.string("feedarr.links.unavailable"), isPresented: $externalLinkRejected) {
+                Button(AppLocalization.string("common.close"), role: .cancel) {}
+            } message: { Text(AppLocalization.string("feedarr.links.rejected")) }
+            .onDisappear {
+                cancelDownload()
+                externalLinkTask?.cancel()
+                externalLinkTask = nil
+            }
             .onChange(of: appEnvironment?.feedarrSourcesManager.configurationRevision) { _, _ in
                 cancelDownload()
                 showingExport = false
@@ -93,6 +104,35 @@ struct FeedarrReleaseDetailSheet: View {
                         .accessibilityLabel(AppLocalization.string("common.close"))
                 }
             }
+        }
+    }
+
+    @ViewBuilder
+    private var informationAction: some View {
+        let links = FeedarrExternalLinks.items(for: release)
+        if let link = links.first(where: { $0.id == "TMDB" }) ?? links.first(where: { $0.id == "TVDB" }) {
+            Button { openExternalLink(link.url) } label: {
+                Image(systemName: "info")
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(.blue)
+                    .frame(width: 44, height: 44)
+                    .background(Color.blue.opacity(0.12), in: Circle())
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .disabled(externalLinkTask != nil)
+            .accessibilityLabel(AppLocalization.string("feedarr.links.open") + " " + link.id)
+        }
+    }
+
+    private func openExternalLink(_ url: URL) {
+        guard externalLinkTask == nil else { return }
+        externalLinkTask = Task {
+            defer { if !Task.isCancelled { externalLinkTask = nil } }
+            let allowed = await FeedarrExternalLinks.mayOpen(url)
+            guard !Task.isCancelled else { return }
+            if allowed { openURL(url) }
+            else { externalLinkRejected = true }
         }
     }
 
@@ -238,11 +278,30 @@ struct FeedarrReleaseDetailSheet: View {
             GroupBox {
                 VStack(alignment: .leading, spacing: 16) {
                     if let technicalTitle {
-                        Text(technicalTitle)
-                            .font(.subheadline.weight(.medium))
-                            .lineSpacing(3)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .textSelection(.enabled)
+                        if let url = FeedarrExternalLinks.validatedURL(release.trackerPageUrl) {
+                            Button { openExternalLink(url) } label: {
+                                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                                    Text(technicalTitle)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                    Image(systemName: "arrow.up.right")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                }
+                                .font(.subheadline.weight(.medium))
+                                .lineSpacing(3)
+                                .foregroundStyle(.primary)
+                                .multilineTextAlignment(.leading)
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(externalLinkTask != nil)
+                            .accessibilityHint(AppLocalization.string("feedarr.links.open") + " Tracker")
+                        } else {
+                            Text(technicalTitle)
+                                .font(.subheadline.weight(.medium))
+                                .lineSpacing(3)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .textSelection(.enabled)
+                        }
                         if !releaseGroups.isEmpty { Divider() }
                     }
                     ForEach(Array(releaseGroups.enumerated()), id: \.offset) { index, rows in
