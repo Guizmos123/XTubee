@@ -260,9 +260,18 @@ struct HomeSettingsView: View {
         }
     }
     
+    private var availableFeedarrSections: [HomeSectionItem] {
+        #if os(iOS)
+        FeedarrHomeSection.allCases.map { HomeSectionItem.feedarr($0) }
+            .filter { !sectionOrder.contains($0) }
+        #else
+        []
+        #endif
+    }
+
     private var availableSectionsSection: some View {
         Section {
-            if availableSectionsByInstance.isEmpty {
+            if availableSectionsByInstance.isEmpty && availableFeedarrSections.isEmpty {
                 Text(AppLocalization.string("home.settings.availableSections.empty"))
                     .foregroundStyle(.secondary)
                     .italic()
@@ -271,6 +280,22 @@ struct HomeSettingsView: View {
                     ForEach(item.sections) { section in
                         availableSectionRow(for: section, instance: item.instance)
                     }
+                }
+            }
+            ForEach(availableFeedarrSections) { section in
+                HStack {
+                    Image(systemName: section.icon)
+                        .frame(width: 24)
+                        .foregroundStyle(.secondary)
+                    Text(section.localizedTitle)
+                    Spacer()
+                    Button { addSection(section) } label: {
+                        Image(systemName: "plus.circle.fill")
+                            .foregroundStyle(.green)
+                            .imageScale(.large)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(section.localizedTitle)
                 }
             }
         } header: {
@@ -478,6 +503,7 @@ struct HomeSettingsView: View {
     }
     
     private func canDelete(section: HomeSectionItem) -> Bool {
+        if case .feedarr = section { return true }
         if case .instanceContent = section {
             return true
         }
@@ -559,6 +585,20 @@ struct HomeSettingsView: View {
     @ViewBuilder
     private func sectionRowView(for section: HomeSectionItem) -> some View {
         switch section {
+        case .feedarr:
+            HomeItemRow(icon: section.icon, title: section.localizedTitle, isVisible: sectionBinding(for: section))
+                #if os(iOS)
+                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                    Button(role: .destructive) { removeSection(section) } label: {
+                        Label(AppLocalization.string("home.settings.remove"), systemImage: "trash")
+                    }
+                }
+                #endif
+                .contextMenu {
+                    Button(role: .destructive) { removeSection(section) } label: {
+                        Label(AppLocalization.string("home.settings.remove"), systemImage: "trash")
+                    }
+                }
         case .instanceContent(let instanceID, let contentType):
             if let instance = instanceFromID(instanceID) {
                 let isDisabled = !instance.isEnabled || (contentType == .feed && !isLoggedIn(instance))

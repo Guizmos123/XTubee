@@ -275,6 +275,8 @@ struct HomeView: View {
                 if !recentHistory.isEmpty { return false }
             case .downloads:
                 break
+            case .feedarr:
+                break // Feedarr's detail sheet is currently iOS-only.
             case .instanceContent, .mediaSource:
                 return false
             }
@@ -1146,6 +1148,15 @@ struct HomeView: View {
     @ViewBuilder
     private func sectionView(for section: HomeSectionItem) -> some View {
         switch section {
+        case .feedarr(let kind):
+            #if os(iOS)
+            if let appEnvironment {
+                FeedarrHomeSectionView(kind: kind, model: appEnvironment.feedarrHomeTopModel,
+                                       layout: sectionLayout, listStyle: listStyle, limit: sectionItemsLimit)
+            }
+            #else
+            EmptyView()
+            #endif
         case .continueWatching:
             if !recentContinueWatching.isEmpty {
                 continueWatchingSection

@@ -60,6 +60,8 @@ final class FeedarrTopModel {
     @ObservationIgnored private let sources: FeedarrSourcesManager
     @ObservationIgnored private let loadTop: LoadTop
     @ObservationIgnored private var revision: UUID
+    @ObservationIgnored private var consumers: Set<UUID> = []
+    @ObservationIgnored private var usesSharedConsumers = false
     @ObservationIgnored private var visible = false
     @ObservationIgnored private var requestID = UUID()
     @ObservationIgnored private var requestTask: Task<Void, Never>?
@@ -84,6 +86,23 @@ final class FeedarrTopModel {
     }
 
     var isEmpty: Bool { response != nil && rails.allSatisfy { $0.items.isEmpty } }
+
+    /// Shared Home/Hub consumers must not cancel one another's request.
+    func setConsumer(_ id: UUID, active: Bool) {
+        usesSharedConsumers = true
+        if active { consumers.insert(id) } else { consumers.remove(id) }
+        synchronizeConfiguration(reload: false)
+        visible = !consumers.isEmpty
+        // A tab transition can briefly have no consumers. Keep a valid in-flight
+        // response for the next page instead of cancelling and downloading twice.
+        if visible { loadIfNeeded() }
+    }
+
+    var configurationRevision: UUID { revision }
+
+    var currentResponse: FeedarrTopResponse? {
+        sources.configurationRevision == revision ? response : nil
+    }
 
     func setVisible(_ visible: Bool) {
         self.visible = visible
@@ -152,7 +171,7 @@ final class FeedarrTopModel {
 
     private func accepts(id: UUID, configuration: UUID) -> Bool {
         synchronizeConfiguration()
-        return requestID == id && sources.configurationRevision == configuration && visible && configured
+        return requestID == id && sources.configurationRevision == configuration && (visible || usesSharedConsumers) && configured
     }
 
     private func cancelRequest() {

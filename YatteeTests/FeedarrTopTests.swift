@@ -229,6 +229,66 @@ struct FeedarrTopTests {
         #expect(fixture.model.response == old)
     }
 
+    @Test func homeAndHubShareOneRequestAndRetainCache() async throws {
+        let fixture = try TopFixture(manual: true)
+        let home = UUID(), hub = UUID()
+        fixture.model.setConsumer(home, active: true)
+        fixture.model.setConsumer(hub, active: true)
+        try await waitUntil { fixture.api.calls.count == 1 }
+        fixture.model.setConsumer(home, active: false)
+        fixture.model.setConsumer(hub, active: false)
+        #expect(fixture.model.isLoading)
+        fixture.model.setConsumer(hub, active: true)
+        let response = try decode(FeedarrDTOFixtures.completeTop)
+        fixture.api.finish(0, with: response)
+        try await waitUntil { fixture.model.currentResponse != nil }
+        fixture.model.setConsumer(hub, active: false)
+        fixture.model.setConsumer(home, active: true)
+        #expect(fixture.model.currentResponse == response)
+        #expect(fixture.api.calls.count == 1)
+        fixture.model.setConsumer(home, active: false)
+    }
+
+    @Test func sharedConsumersRejectPreviousSourceAndLateResponse() async throws {
+        let fixture = try TopFixture(manual: true)
+        let home = UUID(), hub = UUID()
+        fixture.model.setConsumer(home, active: true)
+        fixture.model.setConsumer(hub, active: true)
+        try await waitUntil { fixture.api.calls.count == 1 }
+        let oldRevision = fixture.model.configurationRevision
+        try fixture.manager.update(id: fixture.id, name: "B", serverURL: "https://new.invalid", usesBasicAuth: false)
+        #expect(fixture.model.currentResponse == nil)
+        try await waitUntil { fixture.api.calls.count == 2 }
+        #expect(fixture.model.configurationRevision != oldRevision)
+        let current = try decode(FeedarrDTOFixtures.sparseTop)
+        fixture.api.finish(1, with: current)
+        try await waitUntil { fixture.model.currentResponse != nil }
+        fixture.api.finish(0, with: try decode(FeedarrDTOFixtures.completeTop))
+        try await waitUntil { fixture.api.cancelled.contains(0) }
+        #expect(fixture.model.currentResponse == current)
+        fixture.model.setConsumer(home, active: false)
+        fixture.model.setConsumer(hub, active: false)
+    }
+
+    @Test func sharedHomeDataLoadsOnlyOnDemandWithoutSource() async throws {
+        let fixture = try TopFixture(configured: false)
+        let consumer = UUID()
+        fixture.model.setConsumer(consumer, active: true)
+        await Task.yield()
+        #expect(fixture.api.calls.isEmpty)
+        fixture.model.setConsumer(consumer, active: false)
+        try fixture.manager.add(name: "A", serverURL: "https://feedarr.invalid", usesBasicAuth: false)
+        await Task.yield()
+        #expect(fixture.api.calls.isEmpty)
+        fixture.model.setConsumer(consumer, active: true)
+        try await waitUntil { fixture.model.currentResponse != nil }
+        let response = try #require(fixture.model.currentResponse)
+        #expect(FeedarrHomeSection.global.releases(in: response) == response.globalTop)
+        #expect(FeedarrHomeSection.films.releases(in: response) == response.category(for: .films)?.top)
+        #expect(FeedarrHomeSection.series.releases(in: response) == response.category(for: .series)?.top)
+        fixture.model.setConsumer(consumer, active: false)
+    }
+
     private func decode(_ json: String) throws -> FeedarrTopResponse {
         try JSONDecoder().decode(FeedarrTopResponse.self, from: Data(json.utf8))
     }

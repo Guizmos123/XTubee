@@ -26,6 +26,9 @@ final class AppEnvironment {
     let feedarrCredentialsStore: FeedarrCredentialsStoring
     let feedarrSourcesManager: FeedarrSourcesManager
     let feedarrConnectionValidator: FeedarrConnectionValidator
+    let feedarrPosterService: FeedarrPosterService
+    let feedarrTrackerService: FeedarrTrackerService
+    let feedarrHomeTopModel: FeedarrTopModel
     let contentService: ContentService
     let instanceDetector: InstanceDetector
     let dataManager: DataManager
@@ -146,6 +149,14 @@ final class AppEnvironment {
             credentialsStore: feedarrCredentials
         )
         self.feedarrConnectionValidator = feedarrConnectionValidator ?? FeedarrConnectionValidator()
+        let feedarrAPI = FeedarrAPIClient(sources: self.feedarrSourcesManager, credentialsStore: feedarrCredentials)
+        self.feedarrPosterService = FeedarrPosterService(sources: self.feedarrSourcesManager, credentialsStore: feedarrCredentials)
+        self.feedarrTrackerService = FeedarrTrackerService(sources: self.feedarrSourcesManager) {
+            try await feedarrAPI.trackerSources()
+        }
+        self.feedarrHomeTopModel = FeedarrTopModel(sources: self.feedarrSourcesManager) { sort in
+            try await feedarrAPI.top(hours: 24, take: 20, perCategoryTake: 20, sort: sort)
+        }
 
         // Initialize Basic Auth Credentials Manager early (needed for ContentService)
         let basicAuthCreds = BasicAuthCredentialsManager()

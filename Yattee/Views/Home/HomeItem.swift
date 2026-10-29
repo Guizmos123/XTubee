@@ -430,8 +430,31 @@ enum HomeShortcutItem: Codable, Hashable, Identifiable, Sendable {
 
 // MARK: - Home Section Item
 
+/// Stable Feedarr section identities, independent of the configured server.
+enum FeedarrHomeSection: String, CaseIterable, Codable, Hashable, Sendable {
+    case global, films, series
+
+    var title: String {
+        let title = switch self {
+        case .global: AppLocalization.string("feedarr.top.global")
+        case .films: FeedarrTopCategory.films.localizedTitle
+        case .series: FeedarrTopCategory.series.localizedTitle
+        }
+        return "Feedarr – " + title
+    }
+
+    func releases(in response: FeedarrTopResponse) -> [FeedarrRelease] {
+        switch self {
+        case .global: response.globalTop
+        case .films: response.category(for: .films)?.top ?? []
+        case .series: response.category(for: .series)?.top ?? []
+        }
+    }
+}
+
 /// Represents a section item below the shortcuts in the Home view.
 enum HomeSectionItem: Codable, Hashable, Identifiable, Sendable {
+    case feedarr(FeedarrHomeSection)
     case continueWatching
     case feed
     case bookmarks
@@ -447,6 +470,7 @@ enum HomeSectionItem: Codable, Hashable, Identifiable, Sendable {
 
     var id: String {
         switch self {
+        case .feedarr(let section): return "feedarr_" + section.rawValue
         case .continueWatching: return "continueWatching"
         case .feed: return "feed"
         case .bookmarks: return "bookmarks"
@@ -481,6 +505,7 @@ enum HomeSectionItem: Codable, Hashable, Identifiable, Sendable {
     /// Note: For .mediaSource, returns a placeholder. Views should look up the actual source icon.
     var icon: String {
         switch self {
+        case .feedarr: return "rectangle.stack.fill"
         case .continueWatching: return "play.circle.fill"
         case .feed: return "play.rectangle.on.rectangle.fill"
         case .bookmarks: return "bookmark.fill"
@@ -497,6 +522,7 @@ enum HomeSectionItem: Codable, Hashable, Identifiable, Sendable {
     /// Note: For .mediaSource, returns a placeholder. Views should look up the actual source name.
     var localizedTitle: String {
         switch self {
+        case .feedarr(let section): return section.title
         case .continueWatching: return AppLocalization.string("home.section.continueWatching")
         case .feed: return AppLocalization.string("home.section.feed")
         case .bookmarks: return AppLocalization.string("home.section.bookmarks")
@@ -516,9 +542,11 @@ enum HomeSectionItem: Codable, Hashable, Identifiable, Sendable {
         case instanceID
         case contentType
         case sourceID
+        case feedarrSection
     }
 
     private enum SectionType: String, Codable {
+        case feedarr
         case continueWatching
         case feed
         case bookmarks
@@ -532,6 +560,9 @@ enum HomeSectionItem: Codable, Hashable, Identifiable, Sendable {
         var container = encoder.container(keyedBy: CodingKeys.self)
 
         switch self {
+        case .feedarr(let section):
+            try container.encode(SectionType.feedarr, forKey: .type)
+            try container.encode(section, forKey: .feedarrSection)
         case .continueWatching:
             try container.encode(SectionType.continueWatching, forKey: .type)
         case .feed:
@@ -557,6 +588,8 @@ enum HomeSectionItem: Codable, Hashable, Identifiable, Sendable {
         let type = try container.decode(SectionType.self, forKey: .type)
 
         switch type {
+        case .feedarr:
+            self = .feedarr(try container.decode(FeedarrHomeSection.self, forKey: .feedarrSection))
         case .continueWatching:
             self = .continueWatching
         case .feed:

@@ -213,8 +213,8 @@ struct FeedarrRootView: View {
             releasesModel = FeedarrReleasesModel(sources: sources) { query, cursor, sort, category in
                 try await api.releases(limit: 50, sort: sort, q: query, unifiedCategory: category?.rawValue, cursor: cursor)
             }
-            posterService = FeedarrPosterService(sources: sources, credentialsStore: credentials)
-            let trackers = FeedarrTrackerService(sources: sources) { try await api.trackerSources() }
+            posterService = appEnvironment.feedarrPosterService
+            let trackers = appEnvironment.feedarrTrackerService
             trackerService = trackers
             await trackers.loadIfNeeded()
         }

@@ -13,6 +13,7 @@ struct FeedarrReleaseCard: View {
     let posterService: FeedarrPosterService
     var onSelectRelease: ((FeedarrRelease) -> Void)? = nil
     var showsInformation = true
+    var titleLineLimit: Int? = nil
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -34,7 +35,12 @@ struct FeedarrReleaseCard: View {
             if showsInformation {
                 VStack(alignment: .leading, spacing: 2) {
                     Group {
-                        if reduceMotion {
+                        if let titleLineLimit {
+                            Text(title)
+                                .font(.subheadline.weight(.medium))
+                                .lineLimit(titleLineLimit)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        } else if reduceMotion {
                             Text(title)
                                 .font(.subheadline.weight(.medium))
                                 .lineLimit(1)
