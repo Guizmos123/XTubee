@@ -73,9 +73,14 @@ protocol IPTVLiveCatalogPersisting: Actor {
     func load(sourceID: UUID, configurationRevision: UUID?) async throws -> IPTVLiveCatalog?
     func save(_ catalog: IPTVLiveCatalog) async throws
     func remove(sourceID: UUID) async throws
+    func cachedRevisions(sourceID: UUID) async throws -> [UUID?]
+    func remove(sourceID: UUID, configurationRevisions: [UUID?]) async throws
 }
 
 extension IPTVLiveCatalogPersisting {
+    func cachedRevisions(sourceID: UUID) async throws -> [UUID?] { [] }
+    func remove(sourceID: UUID, configurationRevisions: [UUID?]) async throws {}
+
     func load(sourceID: UUID, configurationRevision: UUID?) async throws -> IPTVLiveCatalog? {
         let catalog = try await load(sourceID: sourceID)
         return catalog?.configurationRevision == configurationRevision ? catalog : nil
@@ -152,6 +157,38 @@ actor FileIPTVLiveCatalogPersistence: IPTVLiveCatalogPersisting {
         } catch {
             throw IPTVLiveCatalogSyncError.cacheWriteFailed
         }
+    }
+
+    /// Enumerate first; the synchronization service revalidates its source before deletion.
+    func cachedRevisions(sourceID: UUID) async throws -> [UUID?] {
+        guard fileManager.fileExists(atPath: directoryURL.path) else { return [] }
+        do {
+            var revisions: [UUID?] = []
+            let prefix = sourceID.uuidString + "."
+            for fileURL in try fileManager.contentsOfDirectory(at: directoryURL, includingPropertiesForKeys: [.isRegularFileKey])
+                where fileURL.pathExtension == "json" {
+                guard try fileURL.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile == true else { continue }
+                let name = fileURL.deletingPathExtension().lastPathComponent
+                if name == sourceID.uuidString {
+                    revisions.append(nil)
+                } else if name.hasPrefix(prefix),
+                          let revision = UUID(uuidString: String(name.dropFirst(prefix.count))) {
+                    revisions.append(revision)
+                }
+            }
+            return revisions
+        } catch { throw IPTVLiveCatalogSyncError.cacheReadFailed }
+    }
+
+    /// Delete an explicit list, never rescan using a possibly stale "keep" revision.
+    /// Like full-source removal, this also completes for an already-cancelled writer.
+    func remove(sourceID: UUID, configurationRevisions: [UUID?]) async throws {
+        do {
+            for revision in configurationRevisions {
+                let url = catalogURL(for: sourceID, configurationRevision: revision)
+                if fileManager.fileExists(atPath: url.path) { try fileManager.removeItem(at: url) }
+            }
+        } catch { throw IPTVLiveCatalogSyncError.cacheWriteFailed }
     }
 
     private func catalogURL(for sourceID: UUID, configurationRevision: UUID?) -> URL {
@@ -388,6 +425,7 @@ final class IPTVLiveCatalogSyncService {
                 return
             }
             try await persistence.save(catalog)
+            await collectObsoleteCacheGenerations(afterSaving: source)
             try Task.checkCancellation()
             guard synchronizationTokens[sourceID] == synchronizationToken,
                   isCurrent(source) else {
@@ -409,6 +447,25 @@ final class IPTVLiveCatalogSyncService {
         } catch {
             guard synchronizationTokens[sourceID] == synchronizationToken, isCurrent(source) else { return }
             setError(.refreshFailed, sourceID: sourceID)
+        }
+    }
+
+    private func collectObsoleteCacheGenerations(afterSaving source: IPTVSource) async {
+        // A writer may have entered save before its configuration changed or was removed.
+        guard isCurrent(source) else {
+            try? await persistence.remove(sourceID: source.id, configurationRevisions: [source.configurationRevision])
+            return
+        }
+        guard let revisions = try? await persistence.cachedRevisions(sourceID: source.id) else { return }
+        guard isCurrent(source) else {
+            try? await persistence.remove(sourceID: source.id, configurationRevisions: [source.configurationRevision])
+            return
+        }
+        // Connection changes mint fresh UUIDs. A future revision cannot be in this
+        // list, even if configuration changes again while removal is queued.
+        let obsolete = revisions.filter { $0 != source.configurationRevision }
+        if !obsolete.isEmpty {
+            try? await persistence.remove(sourceID: source.id, configurationRevisions: obsolete)
         }
     }
 
