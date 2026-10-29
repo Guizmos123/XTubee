@@ -30,6 +30,7 @@ final class FeedarrPosterService {
     @ObservationIgnored private let transport: any FeedarrHTTPTransport
     @ObservationIgnored private let cacheDirectory: URL
     @ObservationIgnored private var snapshot: Snapshot?
+    @ObservationIgnored private var snapshotRevision: UUID?
     @ObservationIgnored private var pipeline: ImagePipeline?
     @ObservationIgnored private var diskCache: FeedarrPosterDataCache?
 
@@ -132,12 +133,22 @@ final class FeedarrPosterService {
     }
 
     private func refreshConfiguration() throws {
+        let revision = sources.configurationRevision
+        // All application credential writes and reloads advance this revision.
+        // Check it before and after loading without rereading Keychain per image.
+        guard snapshotRevision != revision else { return }
         let next: Snapshot?
         do { next = try currentSnapshot() }
         catch { invalidate(); throw error }
-        guard next != snapshot else { return }
+        guard next != snapshot else {
+            snapshotRevision = revision
+            return
+        }
         invalidate()
-        guard let next else { return }
+        guard let next else {
+            snapshotRevision = revision
+            return
+        }
         do {
             let disk = try FeedarrPosterDataCache(path: cacheDirectory)
             let memory = ImageCache()
@@ -151,10 +162,12 @@ final class FeedarrPosterService {
             pipeline = ImagePipeline(configuration: configuration, delegate: PosterCacheKey(generation: generation))
             diskCache = disk
             snapshot = next
+            snapshotRevision = revision
         } catch { throw FeedarrPosterError.cacheUnavailable }
     }
 
     private func invalidate() {
+        snapshotRevision = nil
         guard snapshot != nil || pipeline != nil else { return }
         // Close writes before cancellation: late completions cannot repopulate disk.
         diskCache?.closeAndPurge()

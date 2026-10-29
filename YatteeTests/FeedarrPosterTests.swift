@@ -48,11 +48,50 @@ struct FeedarrPosterTests {
     }
 
     @Test func missingCredentialsNeverSendRequest() async throws {
-        let fixture = try PosterFixture(auth: true)
+        let fixture = try PosterFixture(auth: true, credentialsAvailable: false)
         defer { fixture.cleanUp() }
-        fixture.store.value = nil
         await #expect(throws: FeedarrPosterError.missingCredentials) { try await fixture.service.image(for: release()) }
         #expect(await fixture.transport.requests.isEmpty)
+    }
+
+    @Test func credentialsReadOnceForMultiplePostersAndCacheHits() async throws {
+        let fixture = try PosterFixture(auth: true)
+        defer { fixture.cleanUp() }
+        #expect(fixture.store.readCount == 1)
+        for _ in 0..<2 {
+            _ = try await fixture.service.image(for: release())
+            _ = try await fixture.service.image(for: release("/api/posters/release/2"))
+        }
+        #expect(fixture.store.readCount == 1)
+        #expect(await fixture.transport.requests.count == 2)
+    }
+
+    @Test func unchangedReloadPreservesImagesAndOnlyReadsNewRevisionOnce() async throws {
+        let fixture = try PosterFixture(auth: true)
+        defer { fixture.cleanUp() }
+        _ = try await fixture.service.image(for: release())
+        let generation = fixture.service.generation
+        try fixture.manager.reload()
+        let readsAfterManagerReload = fixture.store.readCount
+        _ = try await fixture.service.image(for: release())
+        _ = try await fixture.service.image(for: release())
+        #expect(fixture.store.readCount == readsAfterManagerReload + 1)
+        #expect(fixture.service.generation == generation)
+        #expect(await fixture.transport.requests.count == 1)
+    }
+
+    @Test func credentialLossOnReloadInvalidatesCachedImages() async throws {
+        let fixture = try PosterFixture(auth: true)
+        defer { fixture.cleanUp() }
+        _ = try await fixture.service.image(for: release())
+        let generation = fixture.service.generation
+        fixture.store.value = nil
+        try fixture.manager.reload()
+        await #expect(throws: FeedarrPosterError.credentialsUnavailable) {
+            try await fixture.service.image(for: release())
+        }
+        #expect(fixture.service.generation != generation)
+        #expect(await fixture.transport.requests.count == 1)
     }
 
     @Test func posterVersionIsPartOfCacheIdentity() async throws {
@@ -183,9 +222,10 @@ struct FeedarrPosterTests {
         try await waitUntil { await signal.cancelled }
     }
 
-    @Test func staleCompletionCannotRestorePurgedCache() async throws {
+    @Test(arguments: ["removal", "password", "server"])
+    func staleCompletionCannotRestorePurgedCache(change: String) async throws {
         let gate = PosterGate()
-        let fixture = try PosterFixture(handler: { request in
+        let fixture = try PosterFixture(auth: true, handler: { request in
             await gate.wait() // Deliberately ignores cancellation to simulate a late transport.
             return PosterTransportStub.response(request)
         })
@@ -193,11 +233,29 @@ struct FeedarrPosterTests {
         let task = Task { try await fixture.service.image(for: release()) }
         try await waitUntil { await !fixture.transport.requests.isEmpty }
         let old = fixture.service.generation
-        try fixture.manager.remove(id: fixture.id)
+        switch change {
+        case "password":
+            try fixture.manager.update(id: fixture.id, name: "Test", serverURL: "https://feedarr.invalid/base",
+                                       usesBasicAuth: true, username: "user", password: "changed")
+        case "server":
+            try fixture.manager.update(id: fixture.id, name: "Test", serverURL: "https://other.invalid/base",
+                                       usesBasicAuth: true, username: "user", password: "secret")
+        default:
+            try fixture.manager.remove(id: fixture.id)
+        }
         try await waitUntil { fixture.service.generation != old }
         await gate.open()
         await #expect(throws: FeedarrPosterError.obsoleteResponse) { try await task.value }
         #expect(try DataCache(path: fixture.directory).totalCount == 0)
+        if change != "removal" {
+            let reads = fixture.store.readCount
+            _ = try await fixture.service.image(for: release())
+            #expect(fixture.store.readCount == reads)
+            let request = try #require(await fixture.transport.requests.last)
+            let password = change == "password" ? "changed" : "secret"
+            #expect(request.value(forHTTPHeaderField: "Authorization") == "Basic " + Data("user:\(password)".utf8).base64EncodedString())
+            #expect(request.url?.host == (change == "server" ? "other.invalid" : "feedarr.invalid"))
+        }
     }
 
     private func release(_ url: String = "/api/posters/release/1?v=1") throws -> FeedarrRelease {
@@ -223,10 +281,11 @@ private struct PosterFixture {
     let service: FeedarrPosterService
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent("FeedarrPosterTests-" + UUID().uuidString)
     let id: UUID
-    init(url: String = "https://feedarr.invalid/base", auth: Bool = false,
+    init(url: String = "https://feedarr.invalid/base", auth: Bool = false, credentialsAvailable: Bool = true,
          handler: @escaping PosterTransportStub.Handler = { PosterTransportStub.response($0) }) throws {
         manager = FeedarrSourcesManager(persistence: PosterPersistence(), credentialsStore: store)
         id = try manager.add(name: "Test", serverURL: url, usesBasicAuth: auth, username: auth ? "user" : nil, password: auth ? "secret" : nil).id
+        if !credentialsAvailable { store.value = nil }
         transport = PosterTransportStub(handler: handler)
         service = FeedarrPosterService(sources: manager, credentialsStore: store, transport: transport, cacheDirectory: directory)
     }
@@ -246,7 +305,8 @@ private final class PosterPersistence: FeedarrSourcePersisting {
 @MainActor
 private final class PosterCredentials: FeedarrCredentialsStoring {
     var value: FeedarrCredentials?
-    func credentials(for sourceID: UUID) throws -> FeedarrCredentials? { value }
+    private(set) var readCount = 0
+    func credentials(for sourceID: UUID) throws -> FeedarrCredentials? { readCount += 1; return value }
     func setCredentials(_ credentials: FeedarrCredentials, for sourceID: UUID) throws { value = credentials }
     func deleteCredentials(for sourceID: UUID) throws { value = nil }
 }
