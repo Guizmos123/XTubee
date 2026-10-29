@@ -12,11 +12,15 @@ struct FeedarrReleaseCard: View {
     let release: FeedarrRelease
     let posterService: FeedarrPosterService
     var onSelectRelease: ((FeedarrRelease) -> Void)? = nil
+    var showsInformation = true
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         if let onSelectRelease {
-            Button { onSelectRelease(release) } label: { content }
+            Button { onSelectRelease(release) } label: {
+                if showsInformation { content }
+                else { content.accessibilityLabel(title) }
+            }
                 .buttonStyle(.plain)
         } else {
             content
@@ -27,24 +31,26 @@ struct FeedarrReleaseCard: View {
         VStack(alignment: .leading, spacing: 8) {
             FeedarrPosterView(release: release, service: posterService)
                 .clipShape(RoundedRectangle(cornerRadius: 10))
-            VStack(alignment: .leading, spacing: 2) {
-                Group {
-                    if reduceMotion {
-                        Text(title)
-                            .font(.subheadline.weight(.medium))
-                            .lineLimit(1)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    } else {
-                        MarqueeText(text: title, delayBeforeScrolling: 0)
+            if showsInformation {
+                VStack(alignment: .leading, spacing: 2) {
+                    Group {
+                        if reduceMotion {
+                            Text(title)
+                                .font(.subheadline.weight(.medium))
+                                .lineLimit(1)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        } else {
+                            MarqueeText(text: title, delayBeforeScrolling: 0)
+                        }
                     }
+                    .allowsHitTesting(false)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(title)
+                    Text(secondary)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1, reservesSpace: true)
                 }
-                .allowsHitTesting(false)
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel(title)
-                Text(secondary)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1, reservesSpace: true)
             }
         }
         .contentShape(Rectangle())

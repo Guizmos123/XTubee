@@ -54,11 +54,19 @@ struct FeedarrRootView: View {
     @Environment(\.appEnvironment) private var appEnvironment
     @State private var navigation = FeedarrNavigationState()
     @State private var showingConfiguration = false
+    @State private var showingReleasesOptions = false
+    @Namespace private var optionsSheetTransition
     @State private var topModel: FeedarrTopModel?
     @State private var releasesModel: FeedarrReleasesModel?
     @State private var posterService: FeedarrPosterService?
     @State private var trackerService: FeedarrTrackerService?
     @State private var isReleasesSearchPresented = false
+    @AppStorage("feedarrReleasesLayout") private var releasesLayout: VideoListLayout = .grid
+    @AppStorage("feedarrReleasesRowStyle") private var releasesRowStyle: VideoRowStyle = .regular
+    @AppStorage("feedarrReleasesGridColumns") private var releasesGridColumns = 2
+    @AppStorage("feedarrReleasesShowsInformation") private var releasesShowsInformation = true
+    @State private var releasesViewWidth: CGFloat = 0
+
 
     private var manager: FeedarrSourcesManager? { appEnvironment?.feedarrSourcesManager }
 
@@ -129,6 +137,7 @@ struct FeedarrRootView: View {
                 }
             }
         }
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { releasesViewWidth = $0 }
         .reactiveNavigationTitle(AppLocalization.string("feedarr.title"))
         .toolbarTitleDisplayMode(.inlineLarge)
         .toolbar {
@@ -155,34 +164,14 @@ struct FeedarrRootView: View {
                               systemImage: releasesModel.query == nil ? "magnifyingglass" : "text.magnifyingglass")
                     }
                     .accessibilityIdentifier("feedarr.releases.search")
-                    Menu {
-                        Menu(AppLocalization.string("feedarr.releases.filters.sort")) {
-                            Picker(AppLocalization.string("feedarr.releases.filters.sort"), selection: Binding(
-                                get: { releasesModel.selectedSort }, set: { releasesModel.selectSort($0) }
-                            )) {
-                                ForEach(FeedarrReleasesSort.allCases) { sort in
-                                    Text(sort.localizedTitle).tag(sort)
-                                }
-                            }
-                            .pickerStyle(.inline)
-                        }
-                        Menu(AppLocalization.string("feedarr.releases.filters.category")) {
-                            Picker(AppLocalization.string("feedarr.releases.filters.category"), selection: Binding(
-                                get: { releasesModel.selectedCategory }, set: { releasesModel.selectCategory($0) }
-                            )) {
-                                Text(AppLocalization.string("feedarr.releases.filters.all"))
-                                    .tag(Optional<FeedarrTopCategory>.none)
-                                ForEach(FeedarrTopCategory.railOrder) { category in
-                                    Text(category.localizedTitle).tag(Optional(category))
-                                }
-                            }
-                            .pickerStyle(.inline)
-                        }
+                    Button {
+                        showingReleasesOptions = true
                     } label: {
                         Label(AppLocalization.string("feedarr.releases.filters"), systemImage: "slider.horizontal.3")
-                            .foregroundStyle(releasesModel.hasActiveFilters ? Color.accentColor : Color.primary)
+                            .foregroundStyle(.blue)
                     }
                     .accessibilityIdentifier("feedarr.releases.filters")
+                    .liquidGlassTransitionSource(id: "feedarrReleasesOptions", in: optionsSheetTransition)
                 }
             }
         }
@@ -203,6 +192,18 @@ struct FeedarrRootView: View {
             await trackers.loadIfNeeded()
         }
         .task(id: manager?.configurationRevision) { await trackerService?.loadIfNeeded() }
+        .sheet(isPresented: $showingReleasesOptions) {
+            if let releasesModel {
+                NavigationStack {
+                    releasesOptionsForm(releasesModel)
+                        .reactiveNavigationTitle(AppLocalization.string("feedarr.releases.options.title"))
+                        .navigationBarTitleDisplayMode(.inline)
+                }
+                .presentationDetents([.height(520), .large])
+                .presentationDragIndicator(.visible)
+                .liquidGlassSheetContent(sourceID: "feedarrReleasesOptions", in: optionsSheetTransition)
+            }
+        }
         .sheet(isPresented: $showingConfiguration, onDismiss: reloadConfiguration) {
             if let appEnvironment {
                 AddFeedarrSourceView(
@@ -223,6 +224,58 @@ struct FeedarrRootView: View {
         .onChange(of: manager?.source?.id) {
             navigation.selectedPage = .top
             navigation.selectedRelease = nil
+        }
+    }
+
+    private var maximumReleasesColumns: Int {
+        UIDevice.current.userInterfaceIdiom == .pad ? max(2, maxGridColumns(forWidth: releasesViewWidth)) : 4
+    }
+
+    private var effectiveReleasesColumns: Int {
+        min(max(2, releasesGridColumns), maximumReleasesColumns)
+    }
+
+    private func releasesOptionsForm(_ model: FeedarrReleasesModel) -> some View {
+        Form {
+            Section {
+                PlatformMenuPicker(AppLocalization.string("viewOptions.layout"), selection: $releasesLayout) {
+                    ForEach(VideoListLayout.allCases, id: \.self) { option in
+                        Text(option.displayName).tag(option)
+                    }
+                }
+                if releasesLayout == .grid {
+                    Stepper(
+                        "viewOptions.columns \(effectiveReleasesColumns)",
+                        value: Binding(get: { effectiveReleasesColumns }, set: { releasesGridColumns = $0 }),
+                        in: 2...maximumReleasesColumns
+                    )
+                    Toggle(AppLocalization.string("feedarr.releases.options.showInformation"), isOn: $releasesShowsInformation)
+                } else {
+                    PlatformMenuPicker(AppLocalization.string("viewOptions.rowSize"), selection: $releasesRowStyle) {
+                        Text("viewOptions.rowSize.compact").tag(VideoRowStyle.compact)
+                        Text("viewOptions.rowSize.regular").tag(VideoRowStyle.regular)
+                        Text("viewOptions.rowSize.large").tag(VideoRowStyle.large)
+                    }
+                }
+            }
+            Section {
+                PlatformMenuPicker(AppLocalization.string("feedarr.releases.filters.sort"), selection: Binding(
+                    get: { model.selectedSort }, set: { model.selectSort($0) }
+                )) {
+                    ForEach(FeedarrReleasesSort.allCases) { sort in
+                        Text(sort.localizedTitle).tag(sort)
+                    }
+                }
+                PlatformMenuPicker(AppLocalization.string("feedarr.releases.filters.category"), selection: Binding(
+                    get: { model.selectedCategory }, set: { model.selectCategory($0) }
+                )) {
+                    Text(AppLocalization.string("feedarr.releases.filters.all"))
+                        .tag(Optional<FeedarrTopCategory>.none)
+                    ForEach(FeedarrTopCategory.railOrder) { category in
+                        Text(category.localizedTitle).tag(Optional(category))
+                    }
+                }
+            }
         }
     }
 

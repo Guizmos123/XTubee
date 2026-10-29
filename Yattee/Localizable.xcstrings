@@ -1,6 +1,38 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "feedarr.releases.options.showInformation" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "Show information" } },
+      "fr" : { "stringUnit" : { "state" : "translated", "value" : "Afficher les informations" } }
+    } },
+    "iptv.options.title" : { "extractionState" : "manual", "localizations" : {
+      "en" : {"stringUnit": {"state": "translated", "value": "IPTV Options"}},
+      "fr" : {"stringUnit": {"state": "translated", "value": "Options IPTV"}}
+    } },
+    "feedarr.releases.options.title" : { "extractionState" : "manual", "localizations" : {
+      "en" : {"stringUnit": {"state": "translated", "value": "Feedarr Options"}},
+      "fr" : {"stringUnit": {"state": "translated", "value": "Options Feedarr"}}
+    } },
+    "feedarr.releases.options.display" : { "extractionState" : "manual", "localizations" : {
+      "en" : {"stringUnit": {"state": "translated", "value": "Display"}},
+      "fr" : {"stringUnit": {"state": "translated", "value": "Affichage"}}
+    } },
+    "feedarr.links.title" : { "extractionState" : "manual", "localizations" : {
+      "en" : {"stringUnit": {"state": "translated", "value": "External links"}},
+      "fr" : {"stringUnit": {"state": "translated", "value": "Liens externes"}}
+    } },
+    "feedarr.links.open" : { "extractionState" : "manual", "localizations" : {
+      "en" : {"stringUnit": {"state": "translated", "value": "Open"}},
+      "fr" : {"stringUnit": {"state": "translated", "value": "Ouvrir"}}
+    } },
+    "feedarr.links.unavailable" : { "extractionState" : "manual", "localizations" : {
+      "en" : {"stringUnit": {"state": "translated", "value": "Link unavailable"}},
+      "fr" : {"stringUnit": {"state": "translated", "value": "Lien indisponible"}}
+    } },
+    "feedarr.links.rejected" : { "extractionState" : "manual", "localizations" : {
+      "en" : {"stringUnit": {"state": "translated", "value": "This destination is unavailable or is not a public HTTPS address."}},
+      "fr" : {"stringUnit": {"state": "translated", "value": "Cette destination est indisponible ou n’est pas une adresse HTTPS publique."}}
+    } },
     "feedarr.download.title" : { "extractionState" : "manual", "localizations" : {
       "en" : {"stringUnit": {"state": "translated", "value": "Download torrent"}},
       "fr" : {"stringUnit": {"state": "translated", "value": "Télécharger le torrent"}}

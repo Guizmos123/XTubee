@@ -87,6 +87,7 @@ struct IPTVRootView: View {
     @State private var playbackRequestID: UUID?
     @State private var playbackErrorMessage: String?
     @State private var isPreparingPlayback = false
+    @Namespace private var optionsSheetTransition
     @State private var showingIPTVOptions = false
     @State private var manualCatalogRefreshTask: Task<Void, Never>?
     @State private var manualCatalogRefreshID: UUID?
@@ -190,6 +191,7 @@ struct IPTVRootView: View {
                         systemImage: "slider.horizontal.3"
                     )
                 }
+                .liquidGlassTransitionSource(id: "iptvOptions", in: optionsSheetTransition)
             }
         }
         .sheet(isPresented: $showingIPTVOptions) {
@@ -206,8 +208,9 @@ struct IPTVRootView: View {
                     hiddenCategoriesJSON: $hiddenCategoriesJSON
                 )
             }
-            .presentationDetents([.medium, .large])
+            .presentationDetents([.height(520), .large])
             .presentationDragIndicator(.visible)
+            .liquidGlassSheetContent(sourceID: "iptvOptions", in: optionsSheetTransition)
         }
         .sheet(item: $searchVariantSelection) { context in
             IPTVStreamVariantPickerSheet(
@@ -1121,8 +1124,6 @@ struct IPTVRootView: View {
 }
 
 private struct IPTVOptionsView: View {
-    @Environment(\.dismiss) private var dismiss
-
     @Binding var startPageRawValue: String
     @Binding var showsFavorites: Bool
     @Binding var showsChannels: Bool
@@ -1211,15 +1212,10 @@ private struct IPTVOptionsView: View {
                 Text(AppLocalization.string("iptv.options.visibleSections.footer"))
             }
         }
-        .reactiveNavigationTitle(AppLocalization.string("viewOptions.title"))
+        .reactiveNavigationTitle(AppLocalization.string("iptv.options.title"))
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
-        .toolbar {
-            sheetCloseToolbarItem(identifier: "iptvOptions.closeButton") {
-                dismiss()
-            }
-        }
         .navigationDestination(isPresented: $showingCategoriesManager) {
             if let sourceID {
                 IPTVManageCategoriesView(

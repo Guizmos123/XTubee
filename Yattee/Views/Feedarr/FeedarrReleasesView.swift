@@ -2,7 +2,7 @@
 //  FeedarrReleasesView.swift
 //  Yattee
 //
-//  Adaptive poster grid, retained between segments and paginated near its end.
+//  Poster grid or list, retained between segments and paginated near its end.
 //
 
 import Foundation
@@ -15,8 +15,21 @@ struct FeedarrReleasesView: View {
     @Binding var isSearchPresented: Bool
     var onSelectRelease: ((FeedarrRelease) -> Void)? = nil
     @FocusState private var searchFocused: Bool
+    @AppStorage("feedarrReleasesLayout") private var layout: VideoListLayout = .grid
+    @AppStorage("feedarrReleasesRowStyle") private var rowStyle: VideoRowStyle = .regular
+    @AppStorage("feedarrReleasesGridColumns") private var gridColumns = 2
+    @AppStorage("feedarrReleasesShowsInformation") private var showsInformation = true
+    @State private var viewWidth: CGFloat = 0
 
-    private let columns = [GridItem(.adaptive(minimum: 144), spacing: 12, alignment: .top)]
+    private var columns: [GridItem] {
+        if layout == .list { return makeGridColumns(count: 1) }
+        #if os(iOS)
+        let maximum = UIDevice.current.userInterfaceIdiom == .pad ? max(2, maxGridColumns(forWidth: viewWidth)) : 4
+        #else
+        let maximum = max(2, maxGridColumns(forWidth: viewWidth))
+        #endif
+        return makeGridColumns(count: min(max(2, gridColumns), maximum))
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -63,10 +76,16 @@ struct FeedarrReleasesView: View {
                             ContentUnavailableView(AppLocalization.string("feedarr.releases.empty"), systemImage: "rectangle.stack")
                         }
                     }
-                    LazyVGrid(columns: columns, alignment: .leading, spacing: 24) {
+                    LazyVGrid(columns: columns, alignment: .leading, spacing: layout == .grid ? 24 : 12) {
                         ForEach(model.items) { release in
-                            FeedarrReleaseCard(release: release, posterService: posterService, onSelectRelease: onSelectRelease)
-                                .onAppear { model.itemAppeared(release.id) }
+                            Group {
+                                if layout == .grid {
+                                    FeedarrReleaseCard(release: release, posterService: posterService, onSelectRelease: onSelectRelease, showsInformation: showsInformation)
+                                } else {
+                                    FeedarrReleaseRow(release: release, posterService: posterService, style: rowStyle, onSelectRelease: onSelectRelease)
+                                }
+                            }
+                            .onAppear { model.itemAppeared(release.id) }
                         }
                     }
                     footer
@@ -78,6 +97,7 @@ struct FeedarrReleasesView: View {
             .id(model.catalogGeneration)
             .refreshable { await model.refresh() }
         }
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { viewWidth = $0 }
         .onAppear { model.setVisible(isVisible) }
         .onChange(of: isSearchPresented) { if !isSearchPresented { searchFocused = false } }
         .onChange(of: isVisible) {
