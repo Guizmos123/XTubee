@@ -244,7 +244,6 @@ struct IPTVRootView: View {
             isSearchPresented = false
             channelGroups = []
             groupedCatalogKey = nil
-            channelGroupingCache = IPTVLiveChannelGroupingCache()
             searchVariantSelection = nil
         }
         .onAppear {
