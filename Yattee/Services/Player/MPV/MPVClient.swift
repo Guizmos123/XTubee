@@ -102,13 +102,24 @@ protocol MPVClientDelegate: AnyObject {
     func mpvClientDidEndFile(_ client: MPVClient, reason: MPVEndFileReason, errorCode: Int32, errorString: String?)
 }
 
-enum MPVEndFileReason {
+enum MPVEndFileReason: Sendable {
     case eof
     case stop
     case quit
     case error
     case redirect
     case unknown
+
+    var diagnosticReason: IPTVPlaybackDiagnostics.Reason {
+        switch self {
+        case .eof: return .eof
+        case .stop: return .stop
+        case .quit: return .quit
+        case .error: return .error
+        case .redirect: return .redirect
+        case .unknown: return .unknown
+        }
+    }
 }
 
 /// A captured mpv log message. `level` matches mpv's level strings: "fatal", "error", "warn", "info", "v", "debug", "trace".
@@ -177,6 +188,17 @@ final class MPVClient: @unchecked Sendable {
 
     /// Ring buffer of recent mpv log messages (formatted "[prefix/level] text").
     /// Guarded by `logBufferLock`. Used to enrich load-error reports surfaced to the UI.
+    private let iptvDiagnosticLock = NSLock()
+    private var iptvDiagnostic: IPTVPlaybackDiagnostics?
+
+    func setIPTVDiagnostic(_ diagnostic: IPTVPlaybackDiagnostics?) {
+        iptvDiagnosticLock.withLock { iptvDiagnostic = diagnostic }
+    }
+
+    private func currentIPTVDiagnostic() -> IPTVPlaybackDiagnostics? {
+        iptvDiagnosticLock.withLock { iptvDiagnostic }
+    }
+
     private var recentLogBuffer: [MPVLogLine] = []
     private let logBufferLock = NSLock()
     private let recentLogBufferCapacity = 32
@@ -241,9 +263,14 @@ final class MPVClient: @unchecked Sendable {
 
     /// Handle MPV_EVENT_LOG_MESSAGE: trim, store in ring buffer, and forward to LoggingService.
     private func handleLogMessage(_ msg: mpv_event_log_message) {
+        let diagnosticTime = ContinuousClock.now
         let prefix = String(cString: msg.prefix)
         let level = String(cString: msg.level)
         var text = String(cString: msg.text)
+        if let diagnostic = currentIPTVDiagnostic(),
+           let signal = IPTVPlaybackDiagnostics.classifyNative(prefix: prefix, level: level, text: text) {
+            Task { @MainActor in diagnostic.native(signal, at: diagnosticTime) }
+        }
         // mpv text usually ends with a newline; trim for tidy logs.
         while text.hasSuffix("\n") || text.hasSuffix("\r") {
             text.removeLast()
@@ -688,6 +715,10 @@ final class MPVClient: @unchecked Sendable {
     ///   - disableVideoTrack: If true, load with the video track disabled (audio mode for muxed files)
     ///   - options: Additional MPV options
     func loadFile(_ url: URL, audioURL: URL? = nil, httpHeaders: [String: String]? = nil, useEDL: Bool = true, disableVideoTrack: Bool = false, options: [String] = []) throws {
+        if let diagnostic = currentIPTVDiagnostic() {
+            let time = ContinuousClock.now
+            Task { @MainActor in diagnostic.record(.loadCommand, origin: .application, at: time) }
+        }
         try mpvQueue.sync {
             guard mpv != nil, !isDestroyed else {
                 throw MPVError.commandFailed("loadfile")
@@ -1689,6 +1720,13 @@ final class MPVClient: @unchecked Sendable {
                 handlePropertyChange(property)
             }
 
+        case MPV_EVENT_START_FILE:
+            if let data = event.data, let diagnostic = currentIPTVDiagnostic() {
+                let entry = data.assumingMemoryBound(to: mpv_event_start_file.self).pointee.playlist_entry_id
+                let time = ContinuousClock.now
+                Task { @MainActor in diagnostic.record(.startFile, origin: .mpv, entry: entry, at: time) }
+            }
+
          case MPV_EVENT_END_FILE:
             if let data = event.data {
                 let endFile = data.assumingMemoryBound(to: mpv_event_end_file.self).pointee
@@ -1698,6 +1736,14 @@ final class MPVClient: @unchecked Sendable {
                 let errorCode: Int32 = isErrorReason ? endFile.error : 0
                 let errorString: String? = isErrorReason ? String(cString: mpv_error_string(errorCode)) : nil
 
+                if let diagnostic = currentIPTVDiagnostic() {
+                    let time = ContinuousClock.now
+                    let entry = endFile.playlist_entry_id
+                    Task { @MainActor in
+                        diagnostic.record(.endFile, origin: .mpv, code: Int(errorCode), reason: reason.diagnosticReason,
+                                          entry: entry, incident: isErrorReason, at: time)
+                    }
+                }
                 if isErrorReason, let mappedString = errorString {
                     logError("End file with error", details: "code=\(errorCode), message=\(mappedString)")
                     Task { @MainActor in

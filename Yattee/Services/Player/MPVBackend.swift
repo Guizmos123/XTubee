@@ -80,6 +80,10 @@ final class MPVBackend: PlayerBackend {
 
     // MARK: - Private Properties
 
+    var iptvDiagnostic: IPTVPlaybackDiagnostics? {
+        didSet { mpvClient?.setIPTVDiagnostic(iptvDiagnostic) }
+    }
+    private(set) var diagnosticRefreshOrigin: IPTVPlaybackDiagnostics.Origin = .none
     private var mpvClient: MPVClient?
     #if os(macOS)
     private var renderView: MPVOGLView?
@@ -293,6 +297,7 @@ final class MPVBackend: PlayerBackend {
         let client = MPVClient()
         client.delegate = self
         mpvClient = client
+        client.setIPTVDiagnostic(iptvDiagnostic)
 
         // Create render view (fast on main thread)
         #if os(macOS)
@@ -385,6 +390,7 @@ final class MPVBackend: PlayerBackend {
     }
 
     private func cleanup() {
+        iptvDiagnostic?.record(.backendDestroy, origin: .application)
         // Stop buffer stall detection
         stopBufferStallDetection()
         stopPlaybackStatsLogging()
@@ -458,6 +464,7 @@ final class MPVBackend: PlayerBackend {
             throw CancellationError()
         }
 
+        iptvDiagnostic?.beginLoad()
         // Reset state (but keep videoWidth/videoHeight for smooth aspect ratio transition)
         isReady = false
         isInitialLoading = true
@@ -730,12 +737,14 @@ final class MPVBackend: PlayerBackend {
     }
 
     func pause() {
+        iptvDiagnostic?.record(.appPause, origin: .application)
         mpvClient?.pause()
         isPlaying = false
         delegate?.backend(self, didChangeState: .paused)
     }
 
     func stop() {
+        iptvDiagnostic?.record(.backendStop, origin: .application)
         #if os(iOS) || os(macOS)
         // Stop PiP if active before stopping playback
         if pipBridge?.isPiPActive == true {
@@ -1456,6 +1465,7 @@ final class MPVBackend: PlayerBackend {
         }
 
         hasDisplayedVideo = true
+        iptvDiagnostic?.renderedFirstFrame()
         LoggingService.shared.debug("MPV: First frame rendered, hasDisplayedVideo = true, pendingInitialSeek = \(pendingInitialSeek), cacheTime = \(demuxerCacheTime)s", category: .mpv)
 
         // If we're waiting to mark ready after a resume seek, do it now
@@ -1617,6 +1627,7 @@ extension MPVBackend: MPVClientDelegate {
         case "time-pos":
             if let time = value as? Double, time >= 0 {
                 currentTime = time
+                iptvDiagnostic?.updatePosition(time)
                 renderView?.updateTimePosition(time)
                 delegate?.backend(self, didUpdateTime: time)
                 // Ready state is now handled by handleFirstFrameRendered()
@@ -1742,6 +1753,8 @@ extension MPVBackend: MPVClientDelegate {
         case "paused-for-cache":
             if let isPausedForCache = value as? Bool {
                 pausedForCache = isPausedForCache
+                sampleIPTVDiagnostic()
+                iptvDiagnostic?.record(.pausedForCache, origin: .mpv)
                 // Use cached values to avoid sync fetch on main thread
                 LoggingService.shared.debug("MPV: paused-for-cache = \(isPausedForCache), cache-time = \(demuxerCacheTime)s", category: .mpv)
 
@@ -1756,6 +1769,7 @@ extension MPVBackend: MPVClientDelegate {
         case "cache-buffering-state":
             if let state = value as? Int64 {
                 cacheBufferingState = Int(state)
+                sampleIPTVDiagnostic()
                 LoggingService.shared.debug("MPV: cache-buffering-state = \(state)%", category: .mpv)
                 delegate?.backend(self, didUpdateBufferProgress: Int(state))
 
@@ -1992,7 +2006,13 @@ extension MPVBackend: MPVClientDelegate {
     }
     #endif
 
+    private func sampleIPTVDiagnostic() {
+        iptvDiagnostic?.sample(position: currentTime, buffer: demuxerCacheTime, percent: cacheBufferingState, paused: pausedForCache)
+    }
+
     private func handleEndFile(reason: MPVEndFileReason, errorCode: Int32 = 0, errorString: String? = nil) {
+        sampleIPTVDiagnostic()
+        iptvDiagnostic?.record(.endHandled, origin: .mpv, code: Int(errorCode), reason: reason.diagnosticReason)
         switch reason {
         case .eof:
             LoggingService.shared.debug("MPV: End of file", category: .mpv)
@@ -2009,6 +2029,7 @@ extension MPVBackend: MPVClientDelegate {
                 // Mid-playback errors are likely due to expired stream URLs
                 // Request stream refresh to attempt recovery
                 LoggingService.shared.logMPV("MPV: Requesting stream refresh for mid-playback error")
+                diagnosticRefreshOrigin = .mpv
                 delegate?.backend(self, didRequestStreamRefresh: currentTime)
             } else {
                 // Capture detailed cause for waitForReady to surface in BackendError.loadFailed.
@@ -2042,6 +2063,8 @@ extension MPVBackend: MPVClientDelegate {
         guard bufferStallStartTime == nil else { return }
 
         bufferStallStartTime = Date()
+        sampleIPTVDiagnostic()
+        iptvDiagnostic?.record(.watchdogStart, origin: .watchdog)
         LoggingService.shared.debug("MPV: Buffer stall detection started", category: .mpv)
 
         // Start a periodic check task
@@ -2064,6 +2087,9 @@ extension MPVBackend: MPVClientDelegate {
                 if stallDuration >= self.bufferStallTimeout && bufferingState == 0 && isPausedForCache {
                     LoggingService.shared.logMPV("MPV: Buffer stalled for \(Int(stallDuration))s, requesting stream refresh")
                     self.stopBufferStallDetection()
+                    self.sampleIPTVDiagnostic()
+                    self.iptvDiagnostic?.record(.watchdogFired, origin: .watchdog, incident: true)
+                    self.diagnosticRefreshOrigin = .watchdog
                     self.delegate?.backend(self, didRequestStreamRefresh: self.currentTime)
                     return
                 }

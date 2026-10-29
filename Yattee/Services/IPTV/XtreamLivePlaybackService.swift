@@ -213,3 +213,202 @@ final class XtreamLivePlaybackService {
         return encoded
     }
 }
+
+// MARK: - Temporary Live Diagnostics
+
+/// Opt-in, bounded diagnostic history. No caller-supplied text reaches the log.
+@MainActor
+final class IPTVPlaybackDiagnostics {
+    enum Event: String, Hashable, Sendable {
+        case sessionStart, sessionEnd, playRequest, loadStart, loadCommand, startFile, firstFrame
+        case endFile, endHandled, pausedForCache, bufferEmpty, bufferRecovered
+        case watchdogStart, watchdogFired, recoveryBegin, recoveryEnd, failed, stateChanged
+        case appPause, appStop, backendStop, backendDestroy
+        case nativeHTTP, nativeTimeout, nativeNetwork, nativeTLS, nativeDecode, nativeError
+    }
+    enum Origin: String, Sendable { case none, mpv, watchdog, application }
+    enum Reason: String, Sendable { case none, eof, stop, quit, error, redirect, unknown }
+    enum Outcome: String, Sendable { case none, success, failure, cancelled, limit }
+    enum Failure: String, Sendable { case none, cancelled, network, noInstance, noStreams, load, other }
+    enum State: String, Sendable { case idle, loading, ready, playing, paused, buffering, ended, failed }
+    enum Format: String, Sendable { case hls, ts, unknown }
+    enum Backend: String, Sendable { case mpv, avplayer, unknown }
+    struct NativeSignal: Hashable, Sendable {
+        let event: Event
+        let code: Int?
+        let isError: Bool
+    }
+
+    let sessionID = UUID()
+    private let launched = ContinuousClock.now
+    private var firstFrame: ContinuousClock.Instant?
+    private var attemptHasFrame = false
+    private var attempt = 0
+    private var sequence = 0
+    private var currentEntry: Int64?
+    private var firstSignal: (sequence: Int, time: ContinuousClock.Instant)?
+    private var history: [String] = []
+    private var startLine: String?
+    private var firstFrameLine: String?
+    private var firstSignalLine: String?
+    private var lastTransitionTimes: [Event: ContinuousClock.Instant] = [:]
+    private var nativeSignals: Set<NativeSignal> = []
+    private var closed = false
+    private var hasFailed = false
+    private var format: Format = .unknown
+    private var backend: Backend = .unknown
+    private var state: State = .idle
+    private var position: Double = 0
+    private var buffer: Double = 0
+    private var percent = 0
+    private var paused = false
+    private var wasEmpty: Bool?
+    private let enabled: @MainActor () -> Bool
+    private let sink: @MainActor (String) -> Void
+
+    init(format: String? = nil, backend: Backend = .unknown, enabled: @escaping @MainActor () -> Bool = {
+        UserDefaults.standard.bool(forKey: "loggingEnabled") && UserDefaults.standard.bool(forKey: "verboseMPVLogging")
+    }, sink: @escaping @MainActor (String) -> Void = { LoggingService.shared.info($0, category: .mpv) }) {
+        self.enabled = enabled
+        self.sink = sink
+        configure(format: format, backend: backend)
+        record(.sessionStart)
+    }
+
+    func configure(format rawFormat: String?, backend: Backend) {
+        switch rawFormat?.lowercased() {
+        case "m3u8", "hls": format = .hls
+        case "ts": format = .ts
+        default: format = .unknown
+        }
+        self.backend = backend
+    }
+
+    func beginLoad() {
+        attempt += 1
+        attemptHasFrame = false
+        position = 0
+        buffer = 0
+        percent = 0
+        paused = false
+        wasEmpty = nil
+        nativeSignals.removeAll(keepingCapacity: true)
+        record(.loadStart, origin: .application)
+    }
+
+    func renderedFirstFrame() {
+        guard !attemptHasFrame else { return }
+        attemptHasFrame = true
+        if firstFrame == nil { firstFrame = .now }
+        record(.firstFrame)
+    }
+
+    func updateState(_ state: State) {
+        guard self.state != state else { return }
+        self.state = state
+        record(.stateChanged)
+    }
+
+    func updatePosition(_ position: Double) { self.position = position.isFinite ? max(0, position) : 0 }
+
+    func sample(position: Double, buffer: Double, percent: Int, paused: Bool) {
+        self.position = position.isFinite ? max(0, position) : 0
+        self.buffer = buffer.isFinite ? max(0, buffer) : 0
+        self.percent = min(100, max(0, percent))
+        self.paused = paused
+        // Property updates can be frequent; only log the empty/nonempty boundary.
+        let empty = percent == 0
+        if empty != wasEmpty {
+            wasEmpty = empty
+            record(empty ? .bufferEmpty : .bufferRecovered)
+        }
+    }
+
+    func native(_ signal: NativeSignal, at time: ContinuousClock.Instant) {
+        guard enabled() else { return }
+        guard nativeSignals.insert(signal).inserted else { return }
+        record(signal.event, origin: .mpv, code: signal.code, incident: signal.isError, at: time)
+    }
+
+    func record(_ event: Event, origin: Origin = .none, code: Int? = nil, reason: Reason = .none,
+                outcome: Outcome = .none, failure: Failure = .none, recovery: Int? = nil, recoveryID: UUID? = nil, entry: Int64? = nil,
+                incident: Bool = false, at time: ContinuousClock.Instant = .now) {
+        guard enabled() else { return }
+        if [.bufferEmpty, .bufferRecovered, .pausedForCache, .stateChanged].contains(event) {
+            if let last = lastTransitionTimes[event], last.duration(to: time) < .seconds(1) { return }
+            lastTransitionTimes[event] = time
+        }
+        sequence += 1
+        if event == .startFile { currentEntry = entry }
+        let earlierSignal = incident && (firstSignal.map({ time < $0.time }) ?? true)
+        if earlierSignal { firstSignal = (sequence, time) }
+        let role = incident ? (firstSignal?.sequence == sequence ? "initial" : "secondary") : "none"
+        let elapsed = Self.seconds(launched.duration(to: time))
+        let sinceFrame = firstFrame.flatMap { time >= $0 ? Self.seconds($0.duration(to: time)) : nil } ?? -1
+        let line = "IPTV-DIAG session=\(sessionID.uuidString) seq=\(sequence) event=\(event.rawValue) elapsed=\(elapsed) since_first_frame=\(sinceFrame) load=\(attempt) format=\(format.rawValue) backend=\(backend.rawValue) state=\(state.rawValue) position=\(position) buffer=\(buffer) percent=\(percent) paused_for_cache=\(paused) origin=\(origin.rawValue) reason=\(reason.rawValue) code=\(code.map(String.init) ?? "none") recovery=\(recovery.map(String.init) ?? "none") recovery_id=\(recoveryID?.uuidString ?? "none") outcome=\(outcome.rawValue) failure=\(failure.rawValue) entry=\(entry.map(String.init) ?? "none") current_entry=\(currentEntry.map(String.init) ?? "none") first_signal=\(firstSignal?.sequence ?? 0) role=\(role) closed=\(closed)"
+        if event == .sessionStart { startLine = line }
+        if event == .firstFrame, firstFrameLine == nil { firstFrameLine = line }
+        if firstSignal?.sequence == sequence { firstSignalLine = line }
+        history.append(line)
+        if history.count > 128 { history.removeFirst(history.count - 128) }
+        sink(line)
+        if event == .failed { hasFailed = true }
+        if event == .failed || (earlierSignal && hasFailed) { snapshot() }
+    }
+
+    func end() {
+        guard !closed else { return }
+        closed = true
+        record(.sessionEnd, origin: .application)
+        snapshot()
+    }
+
+    /// Re-emit retained safe records after failure; new MPV attempts never clear this history.
+    private func snapshot() {
+        guard enabled() else { return }
+        sink("IPTV-DIAG snapshot session=\(sessionID.uuidString) first_signal=\(firstSignal?.sequence ?? 0) records=\(history.count)")
+        for line in [startLine, firstFrameLine, firstSignalLine].compactMap({ $0 }) {
+            sink("IPTV-DIAG anchor " + line)
+        }
+        for line in history { sink("IPTV-DIAG retained " + line) }
+    }
+
+    nonisolated static func failure(_ error: Error) -> Failure {
+        if error is CancellationError { return .cancelled }
+        if error is URLError { return .network }
+        if let error = error as? APIError {
+            switch error {
+            case .noInstance: return .noInstance
+            case .noStreams: return .noStreams
+            default: return .other
+            }
+        }
+        if error is BackendError { return .load }
+        return .other
+    }
+
+    /// Inspect only known patterns. Never retain the prefix, raw line, URL, or error description.
+    nonisolated static func classifyNative(prefix: String, level: String, text: String) -> NativeSignal? {
+        guard ["fatal", "error", "warn"].contains(level) else { return nil }
+        let lower = text.lowercased()
+        if let range = lower.range(of: #"http error [1-5][0-9]{2}\b"#, options: .regularExpression),
+           let code = Int(lower[range].suffix(3)) {
+            return NativeSignal(event: .nativeHTTP, code: code, isError: code >= 400)
+        }
+        if lower.contains("timed out") || lower.contains("timeout") { return NativeSignal(event: .nativeTimeout, code: nil, isError: true) }
+        if lower.contains("tls") || lower.contains("certificate") { return NativeSignal(event: .nativeTLS, code: nil, isError: level != "warn") }
+        if lower.contains("connection reset") || lower.contains("connection refused") || lower.contains("network is unreachable") {
+            return NativeSignal(event: .nativeNetwork, code: nil, isError: true)
+        }
+        let component = prefix.lowercased()
+        if component.hasPrefix("vd") || component.contains("videotoolbox") || component.contains("decoder") {
+            return NativeSignal(event: .nativeDecode, code: nil, isError: level != "warn")
+        }
+        return level == "error" || level == "fatal" ? NativeSignal(event: .nativeError, code: nil, isError: level != "warn") : nil
+    }
+
+    private static func seconds(_ duration: Duration) -> Double {
+        let value = duration.components
+        return Double(value.seconds) + Double(value.attoseconds) / 1e18
+    }
+}

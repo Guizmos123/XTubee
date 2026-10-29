@@ -185,6 +185,9 @@ final class PlayerService {
     private var loadingVideoID: VideoID?
 
     /// Counter for stream refresh attempts to prevent infinite refresh loops.
+    @ObservationIgnored private var iptvDiagnostic: IPTVPlaybackDiagnostics?
+    @ObservationIgnored private var iptvDiagnosticVideoID: VideoID?
+
     private var streamRefreshAttempts = 0
     private let maxStreamRefreshAttempts = 2
 
@@ -289,6 +292,46 @@ final class PlayerService {
         state.setPlaybackState(.idle)
     }
 
+    private func prepareIPTVDiagnostic(video: Video, stream: Stream?) {
+        guard case .iptv = state.playbackContext, video.isLive else {
+            iptvDiagnostic?.end()
+            iptvDiagnostic = nil
+            iptvDiagnosticVideoID = nil
+            (currentBackend as? MPVBackend)?.iptvDiagnostic = nil
+            return
+        }
+        if iptvDiagnosticVideoID != video.id || iptvDiagnostic == nil {
+            iptvDiagnostic?.end()
+            iptvDiagnostic = nil
+            iptvDiagnosticVideoID = nil
+            (currentBackend as? MPVBackend)?.iptvDiagnostic = nil
+            if UserDefaults.standard.bool(forKey: "loggingEnabled"), UserDefaults.standard.bool(forKey: "verboseMPVLogging") {
+                iptvDiagnostic = IPTVPlaybackDiagnostics(format: stream?.format,
+                    backend: IPTVPlaybackDiagnostics.Backend(rawValue: preferredBackendType.rawValue) ?? .unknown)
+                iptvDiagnosticVideoID = video.id
+            }
+        }
+        iptvDiagnostic?.record(.playRequest, origin: .application)
+    }
+
+    private func recordIPTVDiagnosticState(_ playbackState: PlaybackState) {
+        let diagnosticState: IPTVPlaybackDiagnostics.State
+        switch playbackState {
+        case .idle: diagnosticState = .idle
+        case .loading: diagnosticState = .loading
+        case .ready: diagnosticState = .ready
+        case .playing: diagnosticState = .playing
+        case .paused: diagnosticState = .paused
+        case .buffering: diagnosticState = .buffering
+        case .ended: diagnosticState = .ended
+        case .failed: diagnosticState = .failed
+        }
+        iptvDiagnostic?.updateState(diagnosticState)
+        if case .failed(let error) = playbackState {
+            iptvDiagnostic?.record(.failed, failure: IPTVPlaybackDiagnostics.failure(error), incident: true)
+        }
+    }
+
     /// Plays a video with optional starting time.
     /// - Parameters:
     ///   - video: The video to play
@@ -301,6 +344,8 @@ final class PlayerService {
         if let context {
             transitionPlaybackContextIfNeeded(to: context)
         }
+        prepareIPTVDiagnostic(video: video, stream: stream)
+        let playDiagnostic = iptvDiagnostic
         // Downloaded/local files bypass stream selection (they arrive here as
         // ready-made file:// streams), so audio mode is applied at this choke
         // point instead of in selectStreams.
@@ -364,6 +409,7 @@ final class PlayerService {
             if loadingVideoID == video.id { loadingVideoID = nil }
         }
 
+        recordIPTVDiagnosticState(.loading)
         state.setPlaybackState(.loading)
         state.isFirstFrameReady = false  // Reset until first frame of new video is rendered
         state.isBufferReady = false  // Reset until buffer is ready for smooth playback
@@ -537,6 +583,9 @@ final class PlayerService {
             // Load stream
             // Pass EDL setting (MPV-specific: combines video+audio into single virtual file for unified caching)
             let useEDL = settingsManager?.mpvUseEDLStreams ?? true
+            playDiagnostic?.configure(format: selectedStream.format,
+                backend: IPTVPlaybackDiagnostics.Backend(rawValue: backend.backendType.rawValue) ?? .unknown)
+            (backend as? MPVBackend)?.iptvDiagnostic = playDiagnostic
             try await backend.load(stream: selectedStream, audioStream: selectedAudioStream, autoplay: false, useEDL: useEDL)
 
             // Check for cancellation after stream load completes
@@ -665,6 +714,7 @@ final class PlayerService {
             LoggingService.shared.logPlayerError("Playback failed: \(video.id.id)", error: error)
             sleepPreventionService.allowSleep()
             state.videoDetailsState = .error
+            recordIPTVDiagnosticState(.failed(error))
             state.setPlaybackState(.failed(error))
             delegate?.playerService(self, didEncounterError: error)
 
@@ -722,6 +772,7 @@ final class PlayerService {
 
     /// Stops playback and clears the player.
     func stop() {
+        iptvDiagnostic?.record(.appStop, origin: .application)
         sleepPreventionService.allowSleep()
 
         if let video = state.currentVideo {
@@ -756,6 +807,9 @@ final class PlayerService {
         didAutoSelectEmbeddedTracks = false
         lastSkippedSegmentID = nil
         nowPlayingService.clearNowPlaying()
+        iptvDiagnostic?.updateState(.idle)
+        iptvDiagnostic?.end()
+        iptvDiagnosticVideoID = nil
     }
 
     /// Seeks to a specific time.
@@ -1308,7 +1362,7 @@ final class PlayerService {
 
     /// Refreshes stream URLs and resumes playback at the specified time.
     /// Called when mid-playback failure is detected (e.g., expired stream URLs).
-    private func refreshStreamsAndResume(atTime resumeTime: TimeInterval?) async {
+    private func refreshStreamsAndResume(atTime resumeTime: TimeInterval?, diagnostic: IPTVPlaybackDiagnostics?, diagnosticOrigin: IPTVPlaybackDiagnostics.Origin) async {
         guard let video = state.currentVideo else {
             LoggingService.shared.logPlayerError("Cannot refresh streams: no current video")
             return
@@ -1316,6 +1370,9 @@ final class PlayerService {
 
         // Check if we've exceeded refresh attempts
         streamRefreshAttempts += 1
+        let diagnosticAttempt = streamRefreshAttempts
+        let diagnosticRecoveryID = diagnostic.map { _ in UUID() }
+        diagnostic?.record(.recoveryBegin, origin: diagnosticOrigin, recovery: diagnosticAttempt, recoveryID: diagnosticRecoveryID)
         if streamRefreshAttempts > maxStreamRefreshAttempts {
             LoggingService.shared.logPlayerError("Stream refresh failed: exceeded max attempts (\(maxStreamRefreshAttempts))")
             toastManager?.show(
@@ -1326,8 +1383,11 @@ final class PlayerService {
                 autoDismissDelay: 3.0
             )
             // Report error to delegate
+            diagnostic?.record(.recoveryEnd, origin: diagnosticOrigin, outcome: .limit,
+                               recovery: diagnosticAttempt, recoveryID: diagnosticRecoveryID, incident: true)
             let error = BackendError.loadFailed("Stream refresh failed after \(maxStreamRefreshAttempts) attempts")
             delegate?.playerService(self, didEncounterError: error)
+            recordIPTVDiagnosticState(.failed(error))
             state.setPlaybackState(.failed(error))
             return
         }
@@ -1378,6 +1438,9 @@ final class PlayerService {
             // Resume playback with fresh stream
             await play(video: video, stream: newStream, audioStream: newAudioStream, startTime: resumeTime)
 
+            diagnostic?.record(.recoveryEnd, origin: diagnosticOrigin,
+                               outcome: state.isFailed ? .failure : .success, recovery: diagnosticAttempt, recoveryID: diagnosticRecoveryID,
+                               incident: state.isFailed)
             // Reset refresh counter on success
             streamRefreshAttempts = 0
 
@@ -1391,6 +1454,9 @@ final class PlayerService {
             )
 
         } catch {
+            diagnostic?.record(.recoveryEnd, origin: diagnosticOrigin,
+                               outcome: error is CancellationError ? .cancelled : .failure,
+                               failure: IPTVPlaybackDiagnostics.failure(error), recovery: diagnosticAttempt, recoveryID: diagnosticRecoveryID, incident: true)
             LoggingService.shared.logPlayerError("Stream refresh failed", error: error)
 
             // If still under max attempts, the next error will trigger another refresh
@@ -1404,6 +1470,7 @@ final class PlayerService {
                     autoDismissDelay: 3.0
                 )
                 delegate?.playerService(self, didEncounterError: error)
+                recordIPTVDiagnosticState(.failed(error))
                 state.setPlaybackState(.failed(error))
             }
         }
@@ -3187,6 +3254,7 @@ extension PlayerService: PlayerBackendDelegate {
             loadingVideoID = nil
         }
 
+        recordIPTVDiagnosticState(playbackState)
         state.setPlaybackState(playbackState)
         delegate?.playerService(self, didChangeState: playbackState)
     }
@@ -3234,8 +3302,10 @@ extension PlayerService: PlayerBackendDelegate {
     func backend(_ backend: any PlayerBackend, didRequestStreamRefresh atTime: TimeInterval?) {
         LoggingService.shared.logPlayer("Stream refresh requested at time: \(atTime ?? -1)")
 
+        let diagnostic = iptvDiagnostic
+        let origin = (backend as? MPVBackend)?.diagnosticRefreshOrigin ?? .none
         Task {
-            await refreshStreamsAndResume(atTime: atTime)
+            await refreshStreamsAndResume(atTime: atTime, diagnostic: diagnostic, diagnosticOrigin: origin)
         }
     }
 
