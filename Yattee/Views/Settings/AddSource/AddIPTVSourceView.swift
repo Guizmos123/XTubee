@@ -30,13 +30,27 @@ final class AddIPTVSourceModel {
     typealias AddSource = (String, String, String, String) throws -> IPTVSource
 
     var name: String
-    var serverURL: String
+    var serverURL: String {
+        didSet {
+            guard oldValue != serverURL else { return }
+            if Self.origin(oldValue) != Self.origin(serverURL) {
+                hasChangedServerOrigin = true
+                originRevision = UUID()
+                username = ""
+                password = ""
+                validatedInput = nil
+            }
+            fieldsDidChange()
+        }
+    }
     var username = ""
     var password = ""
     private(set) var state: State = .ready
 
     @ObservationIgnored private let validateAccount: Validate
     @ObservationIgnored private var validatedInput: ValidatedInput?
+    @ObservationIgnored private(set) var hasChangedServerOrigin = false
+    @ObservationIgnored private var originRevision = UUID()
 
     init(
         prefillName: String = "",
@@ -100,6 +114,7 @@ final class AddIPTVSourceModel {
             return
         }
 
+        let revision = originRevision
         state = .verifying
         do {
             let account = try await validateAccount(
@@ -109,7 +124,7 @@ final class AddIPTVSourceModel {
             )
             try Task.checkCancellation()
 
-            guard (try? normalizedInput()) == input else {
+            guard revision == originRevision, (try? normalizedInput()) == input else {
                 state = .ready
                 return
             }
@@ -159,6 +174,12 @@ final class AddIPTVSourceModel {
             username: username,
             password: password
         )
+    }
+
+    private static func origin(_ value: String) -> String? {
+        guard let url = try? XtreamServerURL.normalize(value.trimmingCharacters(in: .whitespacesAndNewlines)),
+              let scheme = url.scheme?.lowercased(), let host = url.host?.lowercased() else { return nil }
+        return "\(scheme)://\(host):\(url.port ?? (scheme == "https" ? 443 : 80))"
     }
 }
 
@@ -422,6 +443,9 @@ struct AddIPTVSourceView: View {
             return
         }
         didLoadEditingCredentials = true
+        // A delayed view task must never restore credentials after an origin change,
+        // even if the user has since returned to the original server address.
+        guard !model.hasChangedServerOrigin else { return }
 
         do {
             guard let credentials = try credentialsStore.credentials(for: editingSource.id) else {

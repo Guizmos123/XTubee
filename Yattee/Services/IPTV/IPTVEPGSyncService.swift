@@ -217,7 +217,7 @@ actor XtreamXMLTVClient {
                 throw XtreamXMLTVDownloadError.responseTooLarge
             }
             let ownedFileURL = FileManager.default.temporaryDirectory
-                .appendingPathComponent("XMLTVDownload-(UUID().uuidString)")
+                .appendingPathComponent("XMLTVDownload-\(UUID().uuidString)")
                 .appendingPathExtension("xml")
             try FileManager.default.moveItem(at: fileURL, to: ownedFileURL)
             return ownedFileURL
