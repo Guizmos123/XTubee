@@ -12,21 +12,27 @@ struct IPTVSource: Identifiable, Codable, Hashable, Sendable {
     var name: String
     var serverURL: URL
     let dateAdded: Date
+    /// Non-secret generation; nil keeps existing installations' valid caches readable.
+    var configurationRevision: UUID?
+
+    var cacheIdentity: UUID { configurationRevision ?? id }
 
     init(
         id: UUID = UUID(),
         name: String,
         serverURL: String,
-        dateAdded: Date = Date()
+        dateAdded: Date = Date(),
+        configurationRevision: UUID? = nil
     ) throws {
         self.id = id
         self.name = name
         self.serverURL = try XtreamServerURL.normalize(serverURL)
         self.dateAdded = dateAdded
+        self.configurationRevision = configurationRevision
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, name, serverURL, dateAdded
+        case id, name, serverURL, dateAdded, configurationRevision
     }
 
     init(from decoder: Decoder) throws {
@@ -34,6 +40,7 @@ struct IPTVSource: Identifiable, Codable, Hashable, Sendable {
         id = try container.decode(UUID.self, forKey: .id)
         name = try container.decode(String.self, forKey: .name)
         dateAdded = try container.decode(Date.self, forKey: .dateAdded)
+        configurationRevision = try container.decodeIfPresent(UUID.self, forKey: .configurationRevision)
 
         let storedURL = try container.decode(URL.self, forKey: .serverURL)
         do {

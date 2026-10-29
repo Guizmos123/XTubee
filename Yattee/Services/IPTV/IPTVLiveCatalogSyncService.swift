@@ -13,6 +13,16 @@ struct IPTVLiveCatalog: Codable, Hashable, Sendable {
     let categories: [XtreamLiveCategory]
     let streams: [XtreamLiveStream]
     let lastUpdated: Date
+    let configurationRevision: UUID?
+
+    init(sourceID: UUID, categories: [XtreamLiveCategory], streams: [XtreamLiveStream],
+         lastUpdated: Date, configurationRevision: UUID? = nil) {
+        self.sourceID = sourceID
+        self.categories = categories
+        self.streams = streams
+        self.lastUpdated = lastUpdated
+        self.configurationRevision = configurationRevision
+    }
 }
 
 enum IPTVLiveCatalogLoadingState: Equatable, Sendable {
@@ -60,8 +70,16 @@ struct IPTVLiveCatalogState: Equatable, Sendable {
 
 protocol IPTVLiveCatalogPersisting: Actor {
     func load(sourceID: UUID) async throws -> IPTVLiveCatalog?
+    func load(sourceID: UUID, configurationRevision: UUID?) async throws -> IPTVLiveCatalog?
     func save(_ catalog: IPTVLiveCatalog) async throws
     func remove(sourceID: UUID) async throws
+}
+
+extension IPTVLiveCatalogPersisting {
+    func load(sourceID: UUID, configurationRevision: UUID?) async throws -> IPTVLiveCatalog? {
+        let catalog = try await load(sourceID: sourceID)
+        return catalog?.configurationRevision == configurationRevision ? catalog : nil
+    }
 }
 
 actor FileIPTVLiveCatalogPersistence: IPTVLiveCatalogPersisting {
@@ -79,14 +97,20 @@ actor FileIPTVLiveCatalogPersistence: IPTVLiveCatalogPersisting {
     }
 
     func load(sourceID: UUID) async throws -> IPTVLiveCatalog? {
+        try await load(sourceID: sourceID, configurationRevision: nil)
+    }
+
+    func load(sourceID: UUID, configurationRevision: UUID?) async throws -> IPTVLiveCatalog? {
         try Task.checkCancellation()
-        let fileURL = catalogURL(for: sourceID)
+        let fileURL = catalogURL(for: sourceID, configurationRevision: configurationRevision)
         guard fileManager.fileExists(atPath: fileURL.path) else { return nil }
 
         do {
             let data = try Data(contentsOf: fileURL)
             try Task.checkCancellation()
-            return try decoder.decode(IPTVLiveCatalog.self, from: data)
+            let catalog = try decoder.decode(IPTVLiveCatalog.self, from: data)
+            guard catalog.sourceID == sourceID, catalog.configurationRevision == configurationRevision else { return nil }
+            return catalog
         } catch is CancellationError {
             throw CancellationError()
         } catch {
@@ -108,7 +132,7 @@ actor FileIPTVLiveCatalogPersistence: IPTVLiveCatalogPersisting {
             let data = try encoder.encode(catalog)
             try Task.checkCancellation()
             try data.write(
-                to: catalogURL(for: catalog.sourceID),
+                to: catalogURL(for: catalog.sourceID, configurationRevision: catalog.configurationRevision),
                 options: .atomic
             )
         } catch is CancellationError {
@@ -120,16 +144,19 @@ actor FileIPTVLiveCatalogPersistence: IPTVLiveCatalogPersisting {
 
     func remove(sourceID: UUID) async throws {
         do {
-            let fileURL = catalogURL(for: sourceID)
-            guard fileManager.fileExists(atPath: fileURL.path) else { return }
-            try fileManager.removeItem(at: fileURL)
+            guard fileManager.fileExists(atPath: directoryURL.path) else { return }
+            for fileURL in try fileManager.contentsOfDirectory(at: directoryURL, includingPropertiesForKeys: nil)
+                where fileURL.lastPathComponent.hasPrefix(sourceID.uuidString + ".") && fileURL.pathExtension == "json" {
+                try fileManager.removeItem(at: fileURL)
+            }
         } catch {
             throw IPTVLiveCatalogSyncError.cacheWriteFailed
         }
     }
 
-    private func catalogURL(for sourceID: UUID) -> URL {
-        directoryURL.appendingPathComponent(sourceID.uuidString).appendingPathExtension("json")
+    private func catalogURL(for sourceID: UUID, configurationRevision: UUID?) -> URL {
+        let name = sourceID.uuidString + (configurationRevision.map { "." + $0.uuidString } ?? "")
+        return directoryURL.appendingPathComponent(name).appendingPathExtension("json")
     }
 }
 
@@ -152,6 +179,7 @@ final class IPTVLiveCatalogSyncService {
     @ObservationIgnored private var synchronizationTasks: [UUID: Task<IPTVLiveCatalog, Error>] = [:]
     @ObservationIgnored private var synchronizationTokens: [UUID: UUID] = [:]
     @ObservationIgnored private var selectedSourceID: UUID?
+    @ObservationIgnored private var sourceCacheIdentities: [UUID: UUID] = [:]
 
     init(
         sourcesManager: IPTVSourcesManager,
@@ -180,6 +208,7 @@ final class IPTVLiveCatalogSyncService {
         }
         self.cacheLifetime = cacheLifetime
         self.now = now
+        observeSources()
     }
 
     init(
@@ -198,22 +227,28 @@ final class IPTVLiveCatalogSyncService {
         self.now = now
         self.fetchCategories = fetchCategories
         self.fetchStreams = fetchStreams
+        observeSources()
     }
 
     func state(for sourceID: UUID) -> IPTVLiveCatalogState {
-        states[sourceID] ?? .empty
+        guard let source = sourcesManager.sources.first(where: { $0.id == sourceID }),
+              sourceCacheIdentities[sourceID] == source.cacheIdentity else { return .empty }
+        return states[sourceID] ?? .empty
     }
 
     /// Loads the last valid catalog before synchronization so callers can render it immediately.
     @discardableResult
     func loadCachedCatalog(sourceID: UUID) async -> IPTVLiveCatalog? {
+        synchronizeConfiguration(sourceID: sourceID)
+        guard let source = sourcesManager.sources.first(where: { $0.id == sourceID }) else { return nil }
         if let loadedState = states[sourceID], loadedState.catalog != nil {
             return loadedState.catalog
         }
 
         do {
-            let catalog = try await persistence.load(sourceID: sourceID)
+            let catalog = try await persistence.load(sourceID: sourceID, configurationRevision: source.configurationRevision)
             try Task.checkCancellation()
+            guard isCurrent(source) else { return nil }
             states[sourceID] = IPTVLiveCatalogState(
                 catalog: catalog,
                 loadingState: .idle,
@@ -221,8 +256,9 @@ final class IPTVLiveCatalogSyncService {
             )
             return catalog
         } catch is CancellationError {
-            return states[sourceID]?.catalog
+            return state(for: sourceID).catalog
         } catch {
+            guard isCurrent(source) else { return nil }
             states[sourceID] = IPTVLiveCatalogState(
                 catalog: nil,
                 loadingState: .idle,
@@ -279,6 +315,8 @@ final class IPTVLiveCatalogSyncService {
     }
 
     private func synchronize(sourceID: UUID) async {
+        guard !Task.isCancelled else { return }
+        synchronizeConfiguration(sourceID: sourceID)
         if let existingTask = synchronizationTasks[sourceID] {
             _ = try? await existingTask.value
             return
@@ -326,7 +364,8 @@ final class IPTVLiveCatalogSyncService {
                 sourceID: sourceID,
                 categories: fetchedCategories,
                 streams: fetchedStreams,
-                lastUpdated: synchronizationDate
+                lastUpdated: synchronizationDate,
+                configurationRevision: source.configurationRevision
             )
         }
         synchronizationTasks[sourceID] = task
@@ -345,13 +384,13 @@ final class IPTVLiveCatalogSyncService {
                 task.cancel()
             }
             guard synchronizationTokens[sourceID] == synchronizationToken,
-                  sourcesManager.sources.contains(where: { $0.id == sourceID }) else {
+                  !Task.isCancelled, isCurrent(source) else {
                 return
             }
             try await persistence.save(catalog)
             try Task.checkCancellation()
             guard synchronizationTokens[sourceID] == synchronizationToken,
-                  sourcesManager.sources.contains(where: { $0.id == sourceID }) else {
+                  isCurrent(source) else {
                 return
             }
             states[sourceID] = IPTVLiveCatalogState(
@@ -360,16 +399,40 @@ final class IPTVLiveCatalogSyncService {
                 lastError: nil
             )
         } catch is CancellationError {
-            guard synchronizationTokens[sourceID] == synchronizationToken else { return }
+            guard synchronizationTokens[sourceID] == synchronizationToken, isCurrent(source) else { return }
             var retainedState = state(for: sourceID)
             retainedState.loadingState = .idle
             states[sourceID] = retainedState
         } catch let error as IPTVLiveCatalogSyncError where error == .cacheWriteFailed {
-            guard synchronizationTokens[sourceID] == synchronizationToken else { return }
+            guard synchronizationTokens[sourceID] == synchronizationToken, isCurrent(source) else { return }
             setError(.cacheWriteFailed, sourceID: sourceID)
         } catch {
-            guard synchronizationTokens[sourceID] == synchronizationToken else { return }
+            guard synchronizationTokens[sourceID] == synchronizationToken, isCurrent(source) else { return }
             setError(.refreshFailed, sourceID: sourceID)
+        }
+    }
+
+    private func isCurrent(_ source: IPTVSource) -> Bool {
+        sourcesManager.sources.contains { $0.id == source.id && $0.cacheIdentity == source.cacheIdentity }
+    }
+
+    private func synchronizeConfiguration(sourceID: UUID) {
+        let identity = sourcesManager.sources.first { $0.id == sourceID }?.cacheIdentity
+        guard sourceCacheIdentities[sourceID] != identity else { return }
+        cancel(sourceID: sourceID)
+        states[sourceID] = nil
+        sourceCacheIdentities[sourceID] = identity
+    }
+
+    private func observeSources() {
+        withObservationTracking { _ = sourcesManager.sources } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                for sourceID in Array(self.sourceCacheIdentities.keys) {
+                    self.synchronizeConfiguration(sourceID: sourceID)
+                }
+                self.observeSources()
+            }
         }
     }
 

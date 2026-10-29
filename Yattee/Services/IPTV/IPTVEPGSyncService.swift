@@ -12,6 +12,14 @@ struct IPTVEPGSnapshot: Codable, Equatable, Sendable {
     let sourceID: UUID
     let catalog: EPGCatalog
     let lastUpdated: Date
+    let configurationRevision: UUID?
+
+    init(sourceID: UUID, catalog: EPGCatalog, lastUpdated: Date, configurationRevision: UUID? = nil) {
+        self.sourceID = sourceID
+        self.catalog = catalog
+        self.lastUpdated = lastUpdated
+        self.configurationRevision = configurationRevision
+    }
 }
 
 enum IPTVEPGLoadingState: Equatable, Sendable {
@@ -66,8 +74,16 @@ struct IPTVEPGState: Equatable, Sendable {
 
 protocol IPTVEPGPersisting: Actor {
     func load(sourceID: UUID) async throws -> IPTVEPGSnapshot?
+    func load(sourceID: UUID, configurationRevision: UUID?) async throws -> IPTVEPGSnapshot?
     func save(_ snapshot: IPTVEPGSnapshot) async throws
     func remove(sourceID: UUID) async throws
+}
+
+extension IPTVEPGPersisting {
+    func load(sourceID: UUID, configurationRevision: UUID?) async throws -> IPTVEPGSnapshot? {
+        let snapshot = try await load(sourceID: sourceID)
+        return snapshot?.configurationRevision == configurationRevision ? snapshot : nil
+    }
 }
 
 actor FileIPTVEPGPersistence: IPTVEPGPersisting {
@@ -86,8 +102,12 @@ actor FileIPTVEPGPersistence: IPTVEPGPersisting {
     }
 
     func load(sourceID: UUID) async throws -> IPTVEPGSnapshot? {
+        try await load(sourceID: sourceID, configurationRevision: nil)
+    }
+
+    func load(sourceID: UUID, configurationRevision: UUID?) async throws -> IPTVEPGSnapshot? {
         try Task.checkCancellation()
-        let fileURL = cacheURL(for: sourceID)
+        let fileURL = cacheURL(for: sourceID, configurationRevision: configurationRevision)
         guard fileManager.fileExists(atPath: fileURL.path) else { return nil }
 
         do {
@@ -97,7 +117,7 @@ actor FileIPTVEPGPersistence: IPTVEPGPersisting {
                 IPTVEPGSnapshot.self,
                 from: data
             )
-            guard snapshot.sourceID == sourceID else {
+            guard snapshot.sourceID == sourceID, snapshot.configurationRevision == configurationRevision else {
                 throw IPTVEPGSyncError.cacheReadFailed
             }
             return snapshot
@@ -123,7 +143,7 @@ actor FileIPTVEPGPersistence: IPTVEPGPersisting {
             let data = try encoder.encode(snapshot)
             try Task.checkCancellation()
             try data.write(
-                to: cacheURL(for: snapshot.sourceID),
+                to: cacheURL(for: snapshot.sourceID, configurationRevision: snapshot.configurationRevision),
                 options: .atomic
             )
         } catch is CancellationError {
@@ -135,17 +155,20 @@ actor FileIPTVEPGPersistence: IPTVEPGPersisting {
 
     func remove(sourceID: UUID) async throws {
         do {
-            let fileURL = cacheURL(for: sourceID)
-            guard fileManager.fileExists(atPath: fileURL.path) else { return }
-            try fileManager.removeItem(at: fileURL)
+            guard fileManager.fileExists(atPath: directoryURL.path) else { return }
+            for fileURL in try fileManager.contentsOfDirectory(at: directoryURL, includingPropertiesForKeys: nil)
+                where fileURL.lastPathComponent.hasPrefix(sourceID.uuidString + ".") && fileURL.pathExtension == "epgcache" {
+                try fileManager.removeItem(at: fileURL)
+            }
         } catch {
             throw IPTVEPGSyncError.cacheWriteFailed
         }
     }
 
-    private func cacheURL(for sourceID: UUID) -> URL {
-        directoryURL
-            .appendingPathComponent(sourceID.uuidString)
+    private func cacheURL(for sourceID: UUID, configurationRevision: UUID?) -> URL {
+        let name = sourceID.uuidString + (configurationRevision.map { "." + $0.uuidString } ?? "")
+        return directoryURL
+            .appendingPathComponent(name)
             .appendingPathExtension("epgcache")
     }
 }
@@ -252,6 +275,7 @@ final class IPTVEPGSyncService {
     @ObservationIgnored private var synchronizationTasks: [UUID: Task<IPTVEPGSnapshot, Error>] = [:]
     @ObservationIgnored private var synchronizationTokens: [UUID: UUID] = [:]
     @ObservationIgnored private var selectedSourceID: UUID?
+    @ObservationIgnored private var sourceCacheIdentities: [UUID: UUID] = [:]
 
     init(
         sourcesManager: IPTVSourcesManager,
@@ -290,6 +314,7 @@ final class IPTVEPGSyncService {
         }
         self.cacheLifetime = cacheLifetime
         self.now = now
+        observeSources()
     }
 
     init(
@@ -308,21 +333,27 @@ final class IPTVEPGSyncService {
         self.now = now
         self.downloadXMLTV = downloadXMLTV
         self.parseXMLTV = parseXMLTV
+        observeSources()
     }
 
     func state(for sourceID: UUID) -> IPTVEPGState {
-        states[sourceID] ?? .empty
+        guard let source = sourcesManager.sources.first(where: { $0.id == sourceID }),
+              sourceCacheIdentities[sourceID] == source.cacheIdentity else { return .empty }
+        return states[sourceID] ?? .empty
     }
 
     @discardableResult
     func loadCachedCatalog(sourceID: UUID) async -> EPGCatalog? {
+        synchronizeConfiguration(sourceID: sourceID)
+        guard let source = sourcesManager.sources.first(where: { $0.id == sourceID }) else { return nil }
         if let existing = states[sourceID]?.snapshot {
             return existing.catalog
         }
 
         do {
-            let snapshot = try await persistence.load(sourceID: sourceID)
+            let snapshot = try await persistence.load(sourceID: sourceID, configurationRevision: source.configurationRevision)
             try Task.checkCancellation()
+            guard isCurrent(source) else { return nil }
             states[sourceID] = IPTVEPGState(
                 snapshot: snapshot,
                 loadingState: .idle,
@@ -330,8 +361,9 @@ final class IPTVEPGSyncService {
             )
             return snapshot?.catalog
         } catch is CancellationError {
-            return states[sourceID]?.catalog
+            return state(for: sourceID).catalog
         } catch {
+            guard isCurrent(source) else { return nil }
             states[sourceID] = IPTVEPGState(
                 snapshot: nil,
                 loadingState: .idle,
@@ -376,6 +408,8 @@ final class IPTVEPGSyncService {
     }
 
     private func synchronize(sourceID: UUID) async {
+        guard !Task.isCancelled else { return }
+        synchronizeConfiguration(sourceID: sourceID)
         if let existingTask = synchronizationTasks[sourceID] {
             _ = try? await existingTask.value
             return
@@ -418,7 +452,8 @@ final class IPTVEPGSyncService {
             return IPTVEPGSnapshot(
                 sourceID: sourceID,
                 catalog: catalog,
-                lastUpdated: synchronizationDate
+                lastUpdated: synchronizationDate,
+                configurationRevision: source.configurationRevision
             )
         }
         synchronizationTasks[sourceID] = task
@@ -437,13 +472,13 @@ final class IPTVEPGSyncService {
                 task.cancel()
             }
             guard synchronizationTokens[sourceID] == synchronizationToken,
-                  sourcesManager.sources.contains(where: { $0.id == sourceID }) else {
+                  !Task.isCancelled, isCurrent(source) else {
                 return
             }
             try await persistence.save(snapshot)
             try Task.checkCancellation()
             guard synchronizationTokens[sourceID] == synchronizationToken,
-                  sourcesManager.sources.contains(where: { $0.id == sourceID }) else {
+                  isCurrent(source) else {
                 return
             }
             states[sourceID] = IPTVEPGState(
@@ -452,24 +487,48 @@ final class IPTVEPGSyncService {
                 lastError: nil
             )
         } catch is CancellationError {
-            guard synchronizationTokens[sourceID] == synchronizationToken else { return }
+            guard synchronizationTokens[sourceID] == synchronizationToken, isCurrent(source) else { return }
             var retainedState = state(for: sourceID)
             retainedState.loadingState = .idle
             states[sourceID] = retainedState
         } catch let error as IPTVEPGSyncError where error == .cacheWriteFailed {
-            guard synchronizationTokens[sourceID] == synchronizationToken else { return }
+            guard synchronizationTokens[sourceID] == synchronizationToken, isCurrent(source) else { return }
             setError(.cacheWriteFailed, sourceID: sourceID)
         } catch is XMLTVParserError {
-            guard synchronizationTokens[sourceID] == synchronizationToken else { return }
+            guard synchronizationTokens[sourceID] == synchronizationToken, isCurrent(source) else { return }
             setError(.invalidXML, sourceID: sourceID)
         } catch let error as XtreamXMLTVDownloadError where error == .responseTooLarge {
-            guard synchronizationTokens[sourceID] == synchronizationToken else { return }
+            guard synchronizationTokens[sourceID] == synchronizationToken, isCurrent(source) else { return }
             setError(.responseTooLarge, sourceID: sourceID)
         } catch {
-            guard synchronizationTokens[sourceID] == synchronizationToken else { return }
+            guard synchronizationTokens[sourceID] == synchronizationToken, isCurrent(source) else { return }
             setError(.downloadFailed, sourceID: sourceID)
         }
 
+    }
+
+    private func isCurrent(_ source: IPTVSource) -> Bool {
+        sourcesManager.sources.contains { $0.id == source.id && $0.cacheIdentity == source.cacheIdentity }
+    }
+
+    private func synchronizeConfiguration(sourceID: UUID) {
+        let identity = sourcesManager.sources.first { $0.id == sourceID }?.cacheIdentity
+        guard sourceCacheIdentities[sourceID] != identity else { return }
+        cancel(sourceID: sourceID)
+        states[sourceID] = nil
+        sourceCacheIdentities[sourceID] = identity
+    }
+
+    private func observeSources() {
+        withObservationTracking { _ = sourcesManager.sources } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                for sourceID in Array(self.sourceCacheIdentities.keys) {
+                    self.synchronizeConfiguration(sourceID: sourceID)
+                }
+                self.observeSources()
+            }
+        }
     }
 
     private func setError(_ error: IPTVEPGSyncError, sourceID: UUID) {

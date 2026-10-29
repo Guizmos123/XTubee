@@ -222,7 +222,7 @@ struct IPTVRootView: View {
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
         }
-        .task(id: activeSource?.id) {
+        .task(id: activeSource?.cacheIdentity) {
             await loadCatalogForActiveSource()
         }
         .task(id: catalogGroupingKey) {
@@ -236,7 +236,7 @@ struct IPTVRootView: View {
                 epgReferenceDate = Date()
             }
         }
-        .onChange(of: activeSource?.id) {
+        .onChange(of: activeSource?.cacheIdentity) {
             cancelPlaybackPreparation()
             cancelManualCatalogRefresh()
             cancelAutomaticSynchronizationPresentation()
@@ -244,6 +244,8 @@ struct IPTVRootView: View {
             isSearchPresented = false
             channelGroups = []
             groupedCatalogKey = nil
+            channelGroupingCache = IPTVLiveChannelGroupingCache()
+            searchVariantSelection = nil
         }
         .onAppear {
             repairNavigationSelection(useStartPage: true)
@@ -750,6 +752,7 @@ struct IPTVRootView: View {
             )
             service.selectSource(source.id)
             await service.loadCachedCatalog(sourceID: source.id)
+            guard !Task.isCancelled, activeSource?.cacheIdentity == source.cacheIdentity else { return }
             catalogService = service
             loadedSourceID = source.id
         }
@@ -765,6 +768,7 @@ struct IPTVRootView: View {
             )
             guideService.selectSource(source.id)
             await guideService.loadCachedCatalog(sourceID: source.id)
+            guard !Task.isCancelled, activeSource?.cacheIdentity == source.cacheIdentity else { return }
             epgService = guideService
             loadedEPGSourceID = source.id
         }
@@ -796,7 +800,7 @@ struct IPTVRootView: View {
         _ = await (catalogUpdate, guideUpdate)
 
         guard !Task.isCancelled,
-              activeSource?.id == source.id,
+              activeSource?.cacheIdentity == source.cacheIdentity,
               automaticSynchronizationID == synchronizationID,
               automaticSynchronizationDidStart else {
             return
@@ -818,7 +822,8 @@ struct IPTVRootView: View {
         guard let catalog = catalogState.catalog else { return nil }
         return IPTVLiveChannelGroupingCache.Key(
             sourceID: catalog.sourceID,
-            catalogLastUpdated: catalog.lastUpdated
+            catalogLastUpdated: catalog.lastUpdated,
+            configurationRevision: catalog.configurationRevision
         )
     }
 
@@ -832,7 +837,8 @@ struct IPTVRootView: View {
 
         let expectedKey = IPTVLiveChannelGroupingCache.Key(
             sourceID: catalog.sourceID,
-            catalogLastUpdated: catalog.lastUpdated
+            catalogLastUpdated: catalog.lastUpdated,
+            configurationRevision: catalog.configurationRevision
         )
         guard let groups = await channelGroupingCache.groups(for: catalog),
               !Task.isCancelled,

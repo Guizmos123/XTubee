@@ -181,11 +181,12 @@ final class IPTVSourcesManager {
             throw IPTVSourcesManagerError.sourceNotFound
         }
 
-        let updated = try IPTVSource(
+        var updated = try IPTVSource(
             id: id,
             name: name,
             serverURL: serverURL,
-            dateAdded: sources[index].dateAdded
+            dateAdded: sources[index].dateAdded,
+            configurationRevision: sources[index].configurationRevision
         )
         try ensureUnique(serverURL: updated.serverURL, username: username, excluding: id)
 
@@ -201,11 +202,14 @@ final class IPTVSourcesManager {
         }
 
         let previous = sources[index]
-        sources[index] = updated
+        if Self.connectionURL(previous.serverURL) != Self.connectionURL(updated.serverURL)
+            || oldCredentials != XtreamCredentials(username: username, password: password) {
+            updated.configurationRevision = UUID()
+        }
+        let updatedSources = sources.map { $0.id == id ? updated : $0 }
         do {
-            try persistence.saveSources(sources)
+            try persistence.saveSources(updatedSources)
         } catch {
-            sources[index] = previous
             do {
                 if let oldCredentials {
                     try credentialsStore.setCredentials(oldCredentials, for: id)
@@ -217,6 +221,8 @@ final class IPTVSourcesManager {
             }
             throw IPTVSourcesManagerError.persistenceFailure
         }
+        // Publish only after metadata and credentials have committed successfully.
+        sources = updatedSources
         return updated
     }
 
@@ -313,6 +319,15 @@ final class IPTVSourcesManager {
             }
         }
         loadError = nil
+    }
+
+    private static func connectionURL(_ url: URL) -> URL {
+        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return url }
+        components.host = components.host?.lowercased()
+        if components.port == (components.scheme == "https" ? 443 : 80) { components.port = nil }
+        // Xtream endpoint builders add their own separator after the base path.
+        if components.percentEncodedPath.hasSuffix("/") { components.percentEncodedPath.removeLast() }
+        return components.url ?? url
     }
 
     private func ensureUnique(serverURL: URL, username: String, excluding sourceID: UUID?) throws {

@@ -11,6 +11,7 @@ actor IPTVLiveChannelGroupingCache {
     struct Key: Hashable, Sendable {
         let sourceID: UUID
         let catalogLastUpdated: Date
+        var configurationRevision: UUID? = nil
     }
 
     typealias Grouping = @Sendable (
@@ -34,7 +35,8 @@ actor IPTVLiveChannelGroupingCache {
 
         let key = Key(
             sourceID: catalog.sourceID,
-            catalogLastUpdated: catalog.lastUpdated
+            catalogLastUpdated: catalog.lastUpdated,
+            configurationRevision: catalog.configurationRevision
         )
         if let entry = cachedEntries[catalog.sourceID], entry.key == key {
             return entry.groups

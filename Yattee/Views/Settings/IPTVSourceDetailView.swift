@@ -66,7 +66,8 @@ struct IPTVSourceDetailView: View {
             refreshTask?.cancel()
         }
         .sheet(isPresented: $showingEditSheet, onDismiss: {
-            startRefresh(refreshCatalog: true)
+            // Connection changes invalidate the service; a rename reuses its fresh cache.
+            startRefresh(synchronizeCatalog: true)
         }) {
             NavigationStack {
                 if let source {
@@ -264,7 +265,7 @@ struct IPTVSourceDetailView: View {
         return expirationDay > today ? .green : .red
     }
 
-    private func startRefresh(refreshCatalog: Bool = false) {
+    private func startRefresh(refreshCatalog: Bool = false, synchronizeCatalog: Bool = false) {
         refreshTask?.cancel()
         refreshTask = Task {
             if refreshCatalog, let catalogSyncService {
@@ -273,6 +274,9 @@ struct IPTVSourceDetailView: View {
                 _ = await (accountRefresh, catalogRefresh)
             } else {
                 await refresh()
+                if synchronizeCatalog {
+                    await catalogSyncService?.synchronizeIfNeeded(sourceID: sourceID)
+                }
             }
             refreshTask = nil
         }
