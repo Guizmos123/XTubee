@@ -393,6 +393,30 @@ struct IPTVEPGSyncServiceTests {
         #expect(try await restarted.load(sourceID: other.sourceID) == other)
     }
 
+    @Test("An oversized XMLTV transfer preserves the last valid guide and never starts parsing")
+    func oversizedTransferPreservesCache() async throws {
+        let fixture = try makeFixture()
+        let cached = makeSnapshot(sourceID: fixture.source.id, updatedAt: fixture.now, title: "Cached")
+        await fixture.persistence.seed(cached)
+        let transfer = XMLTVTransferFixture(declaredLength: XtreamXMLTVClient.defaultMaximumDownloadSize + 1,
+                                             finishes: false,
+                                             maximumBytes: XtreamXMLTVClient.defaultMaximumDownloadSize)
+        defer { transfer.cleanUp() }
+        let calls = EPGRequestCounter()
+        let service = IPTVEPGSyncService(sourcesManager: fixture.sourcesManager,
+            credentialsStore: fixture.credentialsStore, persistence: fixture.persistence,
+            downloadXMLTV: { _, _, _ in try await transfer.download() },
+            parseXMLTV: { _ in
+                await calls.recordParse()
+                return Self.makeCatalog(title: "Unexpected")
+            })
+        await service.refresh(sourceID: fixture.source.id)
+        #expect(service.state(for: fixture.source.id).snapshot == cached)
+        #expect(service.state(for: fixture.source.id).lastError == .responseTooLarge)
+        #expect(await fixture.persistence.currentSaveCount() == 0)
+        #expect(await calls.parseCount == 0)
+    }
+
     private func makeService(
         fixture: EPGFixture,
         calls: EPGRequestCounter,
@@ -558,4 +582,174 @@ private actor EPGAsyncSignal {
         if signaled { return }
         await withCheckedContinuation { continuation = $0 }
     }
+}
+
+@Suite("XMLTV bounded file transfers", .serialized)
+struct XMLTVBoundedTransferTests {
+    @Test("Oversized Content-Length is rejected at the response without creating a file")
+    func oversizedContentLength() async throws {
+        #expect(XtreamXMLTVClient.defaultMaximumDownloadSize == 128 * 1_024 * 1_024)
+        let before = try temporaryDownloads()
+        let fixture = XMLTVTransferFixture(declaredLength: XtreamXMLTVClient.defaultMaximumDownloadSize + 1,
+                                           finishes: false,
+                                           maximumBytes: XtreamXMLTVClient.defaultMaximumDownloadSize)
+        defer { fixture.cleanUp() }
+        await #expect(throws: XtreamXMLTVDownloadError.responseTooLarge) { try await fixture.download() }
+        try await waitUntil { fixture.probe.stopped }
+        #expect(fixture.probe.deliveredChunks < fixture.probe.chunkCount)
+        #expect(try temporaryDownloads() == before)
+    }
+
+    @Test("Actual bytes stop an unbounded or dishonest response", arguments: [false, true])
+    func oversizedStream(dishonestLength: Bool) async throws {
+        let before = try temporaryDownloads()
+        // Inject a small limit to exercise the same streaming boundary without allocating 128 MiB.
+        let fixture = XMLTVTransferFixture(declaredLength: dishonestLength ? 1 : nil)
+        defer { fixture.cleanUp() }
+        await #expect(throws: XtreamXMLTVDownloadError.responseTooLarge) { try await fixture.download() }
+        try await waitUntil { fixture.probe.stopped }
+        #expect(fixture.probe.deliveredChunks < fixture.probe.chunkCount)
+        #expect(try temporaryDownloads() == before)
+    }
+
+    @Test("A valid XMLTV file at or below the limit is written intact", arguments: [64, 128])
+    func validFile(size: Int) async throws {
+        let payload = Data(("<tv/>" + String(repeating: " ", count: size - 5)).utf8)
+        let fixture = XMLTVTransferFixture(declaredLength: Int64(payload.count), chunk: payload, chunkCount: 1)
+        defer { fixture.cleanUp() }
+        let file = try await fixture.download()
+        defer { try? FileManager.default.removeItem(at: file) }
+        #expect(file.lastPathComponent.hasPrefix("XMLTVDownload-"))
+        #expect(file.pathExtension == "xml")
+        #expect(try Data(contentsOf: file) == payload)
+    }
+
+    @Test("Cancellation stops a stalled request and removes its partial file")
+    func cancellationCleansUp() async throws {
+        let before = try temporaryDownloads()
+        let fixture = XMLTVTransferFixture(chunkCount: 1, finishes: false)
+        defer { fixture.cleanUp() }
+        let download = Task { try await fixture.download() }
+        try await waitUntil { fixture.probe.deliveredChunks == 1 }
+        download.cancel()
+        await #expect(throws: CancellationError.self) { try await download.value }
+        try await waitUntil { fixture.probe.stopped }
+        #expect(try temporaryDownloads() == before)
+    }
+
+    private func temporaryDownloads() throws -> Set<URL> {
+        Set(try FileManager.default.contentsOfDirectory(at: FileManager.default.temporaryDirectory,
+                                                       includingPropertiesForKeys: nil).filter {
+            $0.lastPathComponent.hasPrefix("XMLTVDownload-") && $0.pathExtension == "xml"
+        })
+    }
+
+    private func waitUntil(_ predicate: () -> Bool) async throws {
+        for _ in 0..<200 {
+            if predicate() { return }
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        #expect(predicate(), "The transfer did not reach the expected state")
+    }
+}
+
+private struct XMLTVTransferFixture: Sendable {
+    let serverURL: URL
+    let client: XtreamXMLTVClient
+    let probe: XMLTVTransferProbe
+
+    init(declaredLength: Int64? = nil, chunk: Data = Data(repeating: 32, count: 32),
+         chunkCount: Int = 100, finishes: Bool = true, maximumBytes: Int64 = 128) {
+        probe = XMLTVTransferProbe(declaredLength: declaredLength, chunk: chunk, chunkCount: chunkCount, finishes: finishes)
+        serverURL = XMLTVTransferRegistry.shared.register(probe)
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [XMLTVTransferProtocol.self]
+        client = XtreamXMLTVClient(configuration: configuration, timeout: 2, maximumDownloadSize: maximumBytes)
+    }
+
+    func download() async throws -> URL {
+        try await client.download(serverURL: serverURL, username: "test-user", password: "test-password")
+    }
+
+    func cleanUp() { XMLTVTransferRegistry.shared.remove(serverURL) }
+}
+
+private final class XMLTVTransferProbe: @unchecked Sendable {
+    let declaredLength: Int64?
+    let chunk: Data
+    let chunkCount: Int
+    let finishes: Bool
+    private let lock = NSLock()
+    private var count = 0
+    private var wasStopped = false
+
+    init(declaredLength: Int64?, chunk: Data, chunkCount: Int, finishes: Bool) {
+        self.declaredLength = declaredLength
+        self.chunk = chunk
+        self.chunkCount = chunkCount
+        self.finishes = finishes
+    }
+
+    var deliveredChunks: Int { lock.withLock { count } }
+    var stopped: Bool { lock.withLock { wasStopped } }
+    func delivered() { lock.withLock { count += 1 } }
+    func stop() { lock.withLock { wasStopped = true } }
+}
+
+private final class XMLTVTransferRegistry: @unchecked Sendable {
+    static let shared = XMLTVTransferRegistry()
+    private let lock = NSLock()
+    private var probes: [String: XMLTVTransferProbe] = [:]
+
+    func register(_ probe: XMLTVTransferProbe) -> URL {
+        let host = UUID().uuidString.lowercased() + ".xmltv.invalid"
+        lock.withLock { probes[host] = probe }
+        return URL(string: "https://" + host)!
+    }
+
+    func probe(_ request: URLRequest) -> XMLTVTransferProbe? {
+        lock.withLock { probes[request.url?.host ?? ""] }
+    }
+
+    func remove(_ url: URL) { lock.withLock { probes[url.host ?? ""] = nil } }
+}
+
+private final class XMLTVTransferProtocol: URLProtocol, @unchecked Sendable {
+    override class func canInit(with request: URLRequest) -> Bool {
+        request.url?.host?.hasSuffix(".xmltv.invalid") == true
+    }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        guard let probe = XMLTVTransferRegistry.shared.probe(request), let url = request.url else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
+            return
+        }
+        var headers: [String: String] = [:]
+        if let length = probe.declaredLength { headers["Content-Length"] = String(length) }
+        guard let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: headers) else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
+            return
+        }
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        // Foundation's URLProtocol bridge waits for an initial chunk before
+        // delivering the response delegate callback. Keep sending to prove cancellation.
+        sendChunk(0, probe: probe)
+    }
+
+    private func sendChunk(_ index: Int, probe: XMLTVTransferProbe) {
+        guard !probe.stopped else { return }
+        if index == probe.chunkCount {
+            if probe.finishes { client?.urlProtocolDidFinishLoading(self) }
+            return
+        }
+        DispatchQueue.global().asyncAfter(deadline: .now() + .milliseconds(5)) { [weak self] in
+            guard let self, !probe.stopped else { return }
+            probe.delivered()
+            self.client?.urlProtocol(self, didLoad: probe.chunk)
+            self.sendChunk(index + 1, probe: probe)
+        }
+    }
+
+    override func stopLoading() { XMLTVTransferRegistry.shared.probe(request)?.stop() }
 }

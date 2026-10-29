@@ -173,18 +173,139 @@ actor FileIPTVEPGPersistence: IPTVEPGPersisting {
     }
 }
 
-private enum XtreamXMLTVDownloadError: Error, Equatable, Sendable {
+enum XtreamXMLTVDownloadError: Error, Equatable, Sendable {
     case invalidResponse
     case httpStatus
     case responseTooLarge
     case transport
 }
 
+/// One XMLTV transfer. Delegate callbacks write bounded chunks directly to disk.
+/// The lock also serializes cancellation with writes and continuation completion.
+private final class XtreamXMLTVDownload: NSObject, URLSessionDataDelegate, @unchecked Sendable {
+    private let maximumBytes: Int64
+    private let fileURL = FileManager.default.temporaryDirectory
+        .appendingPathComponent("XMLTVDownload-\(UUID().uuidString)").appendingPathExtension("xml")
+    private let redirects = XtreamRedirectDelegate()
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<URL, Error>?
+    private var session: URLSession?
+    private var task: URLSessionDataTask?
+    private var output: FileHandle?
+    private var receivedBytes: Int64 = 0
+    private var completed = false
+
+    init(maximumBytes: Int64) { self.maximumBytes = maximumBytes }
+
+    func download(request: URLRequest, configuration: URLSessionConfiguration) async throws -> URL {
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                lock.withLock {
+                    guard !completed else {
+                        continuation.resume(throwing: CancellationError())
+                        return
+                    }
+                    self.continuation = continuation
+                    let session = URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
+                    let task = session.dataTask(with: request)
+                    self.session = session
+                    self.task = task
+                    task.resume()
+                }
+            }
+        } onCancel: {
+            self.finish(.failure(CancellationError()))
+        }
+    }
+
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask,
+                    didReceive response: URLResponse,
+                    completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
+        let failure: Error? = lock.withLock {
+            guard !completed else { return CancellationError() }
+            guard let response = response as? HTTPURLResponse else { return XtreamXMLTVDownloadError.invalidResponse }
+            guard (200...299).contains(response.statusCode) else { return XtreamXMLTVDownloadError.httpStatus }
+            guard response.expectedContentLength <= maximumBytes else { return XtreamXMLTVDownloadError.responseTooLarge }
+            do {
+                guard FileManager.default.createFile(atPath: fileURL.path, contents: nil) else {
+                    return XtreamXMLTVDownloadError.transport
+                }
+                output = try FileHandle(forWritingTo: fileURL)
+                return nil
+            } catch { return XtreamXMLTVDownloadError.transport }
+        }
+        if let failure {
+            finish(.failure(failure))
+            completionHandler(.cancel)
+        } else {
+            completionHandler(.allow)
+        }
+    }
+
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+        let failure: Error? = lock.withLock {
+            guard !completed else { return nil }
+            guard let output else { return XtreamXMLTVDownloadError.invalidResponse }
+            // Check before writing, independently of any advertised length. Subtraction
+            // avoids overflow and the partial file never exceeds the configured bound.
+            guard Int64(data.count) <= maximumBytes - receivedBytes else {
+                return XtreamXMLTVDownloadError.responseTooLarge
+            }
+            do {
+                try output.write(contentsOf: data)
+                receivedBytes += Int64(data.count)
+                return nil
+            } catch { return XtreamXMLTVDownloadError.transport }
+        }
+        if let failure { finish(.failure(failure)) }
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        if let error { finish(.failure(error)); return }
+        let result: Result<URL, Error>? = lock.withLock {
+            guard !completed else { return nil }
+            guard let output else { return .failure(XtreamXMLTVDownloadError.invalidResponse) }
+            do {
+                try output.close()
+                self.output = nil
+                return .success(fileURL)
+            } catch { return .failure(XtreamXMLTVDownloadError.transport) }
+        }
+        if let result { finish(result) }
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask,
+                    willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest,
+                    completionHandler: @escaping (URLRequest?) -> Void) {
+        redirects.urlSession(session, task: task, willPerformHTTPRedirection: response,
+                             newRequest: request, completionHandler: completionHandler)
+    }
+
+    private func finish(_ result: Result<URL, Error>) {
+        let resources: (CheckedContinuation<URL, Error>?, URLSessionDataTask?, URLSession?)? = lock.withLock {
+            guard !completed else { return nil }
+            completed = true
+            try? output?.close()
+            output = nil
+            if case .failure = result { try? FileManager.default.removeItem(at: fileURL) }
+            let resources = (continuation, task, session)
+            continuation = nil
+            task = nil
+            session = nil
+            return resources
+        }
+        guard let (continuation, task, session) = resources else { return }
+        task?.cancel()
+        session?.invalidateAndCancel()
+        continuation?.resume(with: result)
+    }
+}
+
 actor XtreamXMLTVClient {
     static let defaultTimeout: TimeInterval = 120
     static let defaultMaximumDownloadSize: Int64 = 128 * 1_024 * 1_024
 
-    private let session: URLSession
+    private let configuration: URLSessionConfiguration
     private let timeout: TimeInterval
     private let maximumDownloadSize: Int64
 
@@ -196,11 +317,7 @@ actor XtreamXMLTVClient {
         precondition(timeout > 0, "XMLTV timeout must be positive")
         precondition(maximumDownloadSize > 0, "XMLTV size limit must be positive")
 
-        session = URLSession(
-            configuration: configuration,
-            delegate: XtreamRedirectDelegate(),
-            delegateQueue: nil
-        )
+        self.configuration = configuration.copy() as! URLSessionConfiguration
         self.timeout = timeout
         self.maximumDownloadSize = maximumDownloadSize
     }
@@ -222,28 +339,15 @@ actor XtreamXMLTVClient {
         request.cachePolicy = .reloadIgnoringLocalCacheData
 
         do {
-            let (fileURL, response) = try await session.download(for: request)
-            guard let httpResponse = response as? HTTPURLResponse else {
+            let fileURL = try await XtreamXMLTVDownload(maximumBytes: maximumDownloadSize)
+                .download(request: request, configuration: configuration)
+            do {
+                try Task.checkCancellation()
+            } catch {
                 try? FileManager.default.removeItem(at: fileURL)
-                throw XtreamXMLTVDownloadError.invalidResponse
+                throw error
             }
-            guard (200...299).contains(httpResponse.statusCode) else {
-                try? FileManager.default.removeItem(at: fileURL)
-                throw XtreamXMLTVDownloadError.httpStatus
-            }
-
-            let expectedLength = httpResponse.expectedContentLength
-            let downloadedSize = try fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
-            guard expectedLength <= 0 || expectedLength <= maximumDownloadSize,
-                  Int64(downloadedSize) <= maximumDownloadSize else {
-                try? FileManager.default.removeItem(at: fileURL)
-                throw XtreamXMLTVDownloadError.responseTooLarge
-            }
-            let ownedFileURL = FileManager.default.temporaryDirectory
-                .appendingPathComponent("XMLTVDownload-\(UUID().uuidString)")
-                .appendingPathExtension("xml")
-            try FileManager.default.moveItem(at: fileURL, to: ownedFileURL)
-            return ownedFileURL
+            return fileURL
         } catch is CancellationError {
             throw CancellationError()
         } catch let error as URLError where error.code == .cancelled {
