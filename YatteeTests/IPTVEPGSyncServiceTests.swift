@@ -305,6 +305,94 @@ struct IPTVEPGSyncServiceTests {
         #expect(components.queryItems?.first(where: { $0.name == "password" })?.value == "secret value")
     }
 
+    @Test("Connection changes reject fresh EPG caches with unchanged source UUID", arguments: ["host", "username", "password"])
+    func connectionChangeInvalidatesCache(kind: String) async throws {
+        let fixture = try makeFixture()
+        let id = fixture.source.id
+        let old = makeSnapshot(sourceID: id, updatedAt: fixture.now, title: "Old")
+        await fixture.persistence.seed(old)
+        let calls = EPGRequestCounter()
+        let service = makeService(fixture: fixture, calls: calls)
+        await service.synchronizeIfNeeded(sourceID: id)
+        #expect(service.state(for: id).snapshot == old)
+        let updated = try fixture.sourcesManager.update(id: id, name: "Changed",
+            serverURL: kind == "host" ? "https://new.invalid" : fixture.source.serverURL.absoluteString,
+            username: kind == "username" ? "new-user" : "fictional-user",
+            password: kind == "password" ? "new-pass" : "fictional-password")
+        #expect(service.state(for: id).snapshot == nil)
+        #expect(await service.loadCachedCatalog(sourceID: id) == nil)
+        await service.synchronizeIfNeeded(sourceID: id)
+        #expect(service.state(for: id).snapshot?.configurationRevision == updated.configurationRevision)
+        service.selectSource(UUID())
+        service.selectSource(id)
+        await service.synchronizeIfNeeded(sourceID: id)
+        let returned = makeService(fixture: fixture, calls: calls)
+        await returned.synchronizeIfNeeded(sourceID: id)
+        #expect(await calls.downloadCount == 1)
+    }
+
+    @Test("Renaming a source and revisiting EPG retain its cache")
+    func cosmeticChangeRetainsCache() async throws {
+        let fixture = try makeFixture()
+        let cached = makeSnapshot(sourceID: fixture.source.id, updatedAt: fixture.now, title: "Current")
+        await fixture.persistence.seed(cached)
+        let calls = EPGRequestCounter()
+        let service = makeService(fixture: fixture, calls: calls)
+        await service.synchronizeIfNeeded(sourceID: fixture.source.id)
+        _ = try fixture.sourcesManager.update(id: fixture.source.id, name: "Renamed",
+            serverURL: fixture.source.serverURL.absoluteString, username: "fictional-user", password: "fictional-password")
+        await service.synchronizeIfNeeded(sourceID: fixture.source.id)
+        let returned = makeService(fixture: fixture, calls: calls)
+        await returned.synchronizeIfNeeded(sourceID: fixture.source.id)
+        #expect(returned.state(for: fixture.source.id).snapshot == cached)
+        #expect(await calls.downloadCount == 0)
+    }
+
+    @Test("An old EPG response cannot publish or save after a connection change")
+    func connectionChangeRejectsLateResponse() async throws {
+        let fixture = try makeFixture()
+        let started = EPGAsyncSignal()
+        let release = EPGAsyncSignal()
+        let service = IPTVEPGSyncService(sourcesManager: fixture.sourcesManager,
+            credentialsStore: fixture.credentialsStore, persistence: fixture.persistence,
+            downloadXMLTV: { url, _, _ in
+                if url.host == "server.invalid" { await started.signal(); await release.wait() }
+                return URL(fileURLWithPath: "/tmp/epg-\(url.host!).xml")
+            }, parseXMLTV: { url in Self.makeCatalog(title: url.lastPathComponent) })
+        let oldRefresh = Task { await service.refresh(sourceID: fixture.source.id) }
+        await started.wait()
+        _ = try fixture.sourcesManager.update(id: fixture.source.id, name: "New", serverURL: "https://new.invalid",
+                                              username: "new-user", password: "new-pass")
+        await service.refresh(sourceID: fixture.source.id)
+        await release.signal()
+        await oldRefresh.value
+        let programs = service.state(for: fixture.source.id).catalog?.programs(for: EPGChannelID(rawValue: "epg.channel"))
+        #expect(programs?.first?.title == "epg-new.invalid.xml")
+        #expect(await fixture.persistence.currentSaveCount() == 1)
+    }
+
+    @Test("EPG disk generations isolate late writes, survive reload and remove only their source")
+    func diskRevisionIsolation() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let persistence = FileIPTVEPGPersistence(directoryURL: directory)
+        let id = UUID()
+        let old = makeSnapshot(sourceID: id, updatedAt: Date(), title: "Old")
+        let current = IPTVEPGSnapshot(sourceID: id, catalog: Self.makeCatalog(title: "New"),
+                                      lastUpdated: Date(), configurationRevision: UUID())
+        let other = makeSnapshot(sourceID: UUID(), updatedAt: Date(), title: "Other")
+        try await persistence.save(current)
+        try await persistence.save(old)
+        try await persistence.save(other)
+        let restarted = FileIPTVEPGPersistence(directoryURL: directory)
+        #expect(try await restarted.load(sourceID: id, configurationRevision: current.configurationRevision) == current)
+        #expect(try await restarted.load(sourceID: id, configurationRevision: UUID()) == nil)
+        try await restarted.remove(sourceID: id)
+        #expect(try await restarted.load(sourceID: id) == nil)
+        #expect(try await restarted.load(sourceID: id, configurationRevision: current.configurationRevision) == nil)
+        #expect(try await restarted.load(sourceID: other.sourceID) == other)
+    }
+
     private func makeService(
         fixture: EPGFixture,
         calls: EPGRequestCounter,

@@ -71,6 +71,22 @@ struct IPTVLiveChannelGroupingCacheTests {
         #expect(first?.first?.sourceID != second?.first?.sourceID)
     }
 
+    @Test("Connection revisions invalidate derived groups even with the same UUID and timestamp")
+    func invalidatesConnectionRevision() async throws {
+        let counter = LockedGroupingCounter()
+        let cache = IPTVLiveChannelGroupingCache { sourceID, streams in
+            counter.group(sourceID: sourceID, streams: streams)
+        }
+        let old = try makeCatalog(sourceID: UUID(), updatedAt: Date())
+        let current = IPTVLiveCatalog(sourceID: old.sourceID, categories: old.categories,
+                                      streams: old.streams, lastUpdated: old.lastUpdated,
+                                      configurationRevision: UUID())
+        _ = await cache.groups(for: old)
+        _ = await cache.groups(for: current)
+        _ = await cache.groups(for: current)
+        #expect(counter.value == 2)
+    }
+
     private func makeCatalog(
         sourceID: UUID,
         updatedAt: Date,

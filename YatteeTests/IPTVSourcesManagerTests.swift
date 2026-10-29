@@ -284,6 +284,32 @@ struct IPTVSourcesManagerTests {
         #expect(manager.sources.isEmpty)
     }
 
+    @Test("Only connection changes rotate the persisted cache revision", arguments: ["host", "username", "password"])
+    func connectionRevision(kind: String) throws {
+        let persistence = MockIPTVPersistence()
+        let credentials = MockXtreamCredentialsStore()
+        let manager = IPTVSourcesManager(persistence: persistence, credentialsStore: credentials)
+        let source = try manager.add(name: "Original", serverURL: "https://server.invalid", username: "user", password: "pass")
+        let other = try manager.add(name: "Other", serverURL: "https://other.invalid", username: "user", password: "pass")
+        let renamed = try manager.update(id: source.id, name: "Renamed", serverURL: source.serverURL.absoluteString,
+                                         username: "user", password: "pass")
+        #expect(renamed.cacheIdentity == source.cacheIdentity)
+        let reformatted = try manager.update(id: source.id, name: "Renamed", serverURL: "HTTPS://SERVER.INVALID:443/",
+                                             username: "user", password: "pass")
+        #expect(reformatted.cacheIdentity == source.cacheIdentity)
+        let updated = try manager.update(id: source.id, name: "Changed",
+                                         serverURL: kind == "host" ? "https://new.invalid" : source.serverURL.absoluteString,
+                                         username: kind == "username" ? "new-user" : "user",
+                                         password: kind == "password" ? "new-pass" : "pass")
+        #expect(updated.id == source.id)
+        #expect(updated.cacheIdentity != source.cacheIdentity)
+        #expect(manager.sources.first { $0.id == other.id } == other)
+        let restored = IPTVSourcesManager(persistence: persistence, credentialsStore: credentials)
+        #expect(restored.activeSource?.cacheIdentity == updated.cacheIdentity)
+        let decoded = try JSONDecoder().decode(IPTVSource.self, from: JSONEncoder().encode(updated))
+        #expect(decoded.cacheIdentity == updated.cacheIdentity)
+    }
+
     @Test("Update keeps stable identity and rolls credentials back if metadata persistence fails")
     func updateRollback() throws {
         let persistence = MockIPTVPersistence()

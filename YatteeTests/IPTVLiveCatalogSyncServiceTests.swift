@@ -277,6 +277,96 @@ struct IPTVLiveCatalogSyncServiceTests {
         #expect(try JSONDecoder().decode(IPTVLiveCatalog.self, from: encoded) == catalog)
     }
 
+    @Test("Connection changes reject fresh Live caches with unchanged source UUID", arguments: ["host", "username", "password"])
+    func connectionChangeInvalidatesCache(kind: String) async throws {
+        let fixture = try makeFixture()
+        let id = fixture.source.id
+        let old = try makeCatalog(sourceID: id, updatedAt: fixture.now)
+        await fixture.catalogPersistence.seed(old)
+        let calls = CatalogRequestCounter()
+        let service = makeService(fixture: fixture, calls: calls)
+        await service.synchronizeIfNeeded(sourceID: id)
+        #expect(service.state(for: id).catalog == old)
+
+        let updated = try fixture.sourcesManager.update(id: id, name: "Changed",
+            serverURL: kind == "host" ? "https://new.invalid" : fixture.source.serverURL.absoluteString,
+            username: kind == "username" ? "new-user" : "fictional-user",
+            password: kind == "password" ? "new-pass" : "fictional-password")
+        #expect(service.state(for: id).catalog == nil)
+        #expect(await service.loadCachedCatalog(sourceID: id) == nil)
+        await service.synchronizeIfNeeded(sourceID: id)
+        #expect(service.state(for: id).catalog?.configurationRevision == updated.configurationRevision)
+        #expect(await calls.streamCount == 1)
+        // Simple navigation and a newly created consumer must retain the current cache.
+        service.selectSource(UUID())
+        service.selectSource(id)
+        await service.synchronizeIfNeeded(sourceID: id)
+        let returned = makeService(fixture: fixture, calls: calls)
+        await returned.synchronizeIfNeeded(sourceID: id)
+        #expect(await calls.streamCount == 1)
+    }
+
+    @Test("Renaming a source and revisiting Live retain its cache")
+    func cosmeticChangeRetainsCache() async throws {
+        let fixture = try makeFixture()
+        let cached = try makeCatalog(sourceID: fixture.source.id, updatedAt: fixture.now)
+        await fixture.catalogPersistence.seed(cached)
+        let calls = CatalogRequestCounter()
+        let service = makeService(fixture: fixture, calls: calls)
+        await service.synchronizeIfNeeded(sourceID: fixture.source.id)
+        _ = try fixture.sourcesManager.update(id: fixture.source.id, name: "Renamed",
+            serverURL: fixture.source.serverURL.absoluteString, username: "fictional-user", password: "fictional-password")
+        await service.synchronizeIfNeeded(sourceID: fixture.source.id)
+        let returned = makeService(fixture: fixture, calls: calls)
+        await returned.synchronizeIfNeeded(sourceID: fixture.source.id)
+        #expect(returned.state(for: fixture.source.id).catalog == cached)
+        #expect(await calls.streamCount == 0)
+    }
+
+    @Test("An old Live response cannot publish or save after a connection change")
+    func connectionChangeRejectsLateResponse() async throws {
+        let fixture = try makeFixture()
+        let started = AsyncSignal()
+        let release = AsyncSignal()
+        let service = IPTVLiveCatalogSyncService(sourcesManager: fixture.sourcesManager,
+            credentialsStore: fixture.credentialsStore, persistence: fixture.catalogPersistence,
+            fetchCategories: { url, _, _ in
+                if url.host == "server.invalid" { await started.signal(); await release.wait() }
+                return try Self.categories(suffix: url.host == "server.invalid" ? "old" : "new")
+            }, fetchStreams: { _, _, _ in try Self.streams(suffix: "new") })
+        let oldRefresh = Task { await service.refresh(sourceID: fixture.source.id) }
+        await started.wait()
+        _ = try fixture.sourcesManager.update(id: fixture.source.id, name: "New", serverURL: "https://new.invalid",
+                                              username: "new-user", password: "new-pass")
+        await service.refresh(sourceID: fixture.source.id)
+        await release.signal()
+        await oldRefresh.value
+        #expect(service.state(for: fixture.source.id).catalog?.categories.first?.categoryID == "new-category")
+        #expect(await fixture.catalogPersistence.currentSaveCount() == 1)
+    }
+
+    @Test("Live disk generations isolate late writes, survive reload and remove only their source")
+    func diskRevisionIsolation() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let persistence = FileIPTVLiveCatalogPersistence(directoryURL: directory)
+        let id = UUID()
+        let old = try makeCatalog(sourceID: id, updatedAt: Date())
+        let current = IPTVLiveCatalog(sourceID: id, categories: old.categories, streams: old.streams,
+                                      lastUpdated: Date(), configurationRevision: UUID())
+        let other = try makeCatalog(sourceID: UUID(), updatedAt: Date())
+        try await persistence.save(current)
+        try await persistence.save(old) // An already-started old-generation write finishes last.
+        try await persistence.save(other)
+        let restarted = FileIPTVLiveCatalogPersistence(directoryURL: directory)
+        #expect(try await restarted.load(sourceID: id, configurationRevision: current.configurationRevision) == current)
+        #expect(try await restarted.load(sourceID: id, configurationRevision: UUID()) == nil)
+        try await restarted.remove(sourceID: id)
+        #expect(try await restarted.load(sourceID: id) == nil)
+        #expect(try await restarted.load(sourceID: id, configurationRevision: current.configurationRevision) == nil)
+        #expect(try await restarted.load(sourceID: other.sourceID) == other)
+    }
+
     private func makeService(
         fixture: Fixture,
         calls: CatalogRequestCounter,
