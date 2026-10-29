@@ -12,6 +12,7 @@ struct FeedarrReleasesView: View {
     let model: FeedarrReleasesModel
     let posterService: FeedarrPosterService
     let isVisible: Bool
+    var isManuallyRefreshing = false
     @Binding var isSearchPresented: Bool
     var onSelectRelease: ((FeedarrRelease) -> Void)? = nil
     @FocusState private var searchFocused: Bool
@@ -69,7 +70,7 @@ struct FeedarrReleasesView: View {
             }
             ScrollView {
                 LazyVStack(spacing: 20) {
-                    if (model.isLoadingInitial || model.isDebouncing) && model.items.isEmpty {
+                    if !isManuallyRefreshing && (model.isLoadingInitial || model.isDebouncing) && model.items.isEmpty {
                         ProgressView(AppLocalization.string("feedarr.releases.loading"))
                             .frame(maxWidth: .infinity).padding(.vertical, 32)
                     }
@@ -99,7 +100,6 @@ struct FeedarrReleasesView: View {
                 .padding(.bottom, 24)
             }
             .id(model.catalogGeneration)
-            .refreshable { await model.refresh() }
         }
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { viewWidth = $0 }
         .onAppear { model.setVisible(isVisible) }
@@ -118,7 +118,7 @@ struct FeedarrReleasesView: View {
                     .font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
                 Button(AppLocalization.string("feedarr.retry")) { model.retry() }
                     .buttonStyle(.bordered)
-            } else if model.isLoadingNextPage {
+            } else if model.isLoadingNextPage && !isManuallyRefreshing {
                 ProgressView(AppLocalization.string("feedarr.releases.loadingMore"))
             } else if model.isAtEnd && !model.items.isEmpty && !model.isLoadingInitial {
                 Text(AppLocalization.string("feedarr.releases.end"))

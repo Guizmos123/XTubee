@@ -257,9 +257,17 @@
       "en" : { "stringUnit" : { "state" : "translated", "value" : "No releases in the last 24 hours" } },
       "fr" : { "stringUnit" : { "state" : "translated", "value" : "Aucune release ces dernières 24 heures" } }
     } },
+    "feedarr.sync.synchronizing" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "Updating Feedarr…" } },
+      "fr" : { "stringUnit" : { "state" : "translated", "value" : "Actualisation de Feedarr…" } }
+    } },
+    "feedarr.sync.success" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "Feedarr up to date" } },
+      "fr" : { "stringUnit" : { "state" : "translated", "value" : "Feedarr à jour" } }
+    } },
     "feedarr.top.empty.description" : { "extractionState" : "manual", "localizations" : {
-      "en" : { "stringUnit" : { "state" : "translated", "value" : "Pull to refresh and check for new releases." } },
-      "fr" : { "stringUnit" : { "state" : "translated", "value" : "Tirez pour actualiser et rechercher de nouvelles releases." } }
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "Use Refresh to check for new releases." } },
+      "fr" : { "stringUnit" : { "state" : "translated", "value" : "Utilisez Actualiser pour rechercher de nouvelles releases." } }
     } },
     "feedarr.top.error.title" : { "extractionState" : "manual", "localizations" : {
       "en" : { "stringUnit" : { "state" : "translated", "value" : "Top 24h unavailable" } },

@@ -73,6 +73,10 @@ struct FeedarrRootView: View {
     @AppStorage("feedarrReleasesGridColumns") private var releasesGridColumns = 2
     @AppStorage("feedarrReleasesShowsInformation") private var releasesShowsInformation = true
     @State private var releasesViewWidth: CGFloat = 0
+    @State private var refreshTask: Task<Void, Never>?
+    @State private var refreshID: UUID?
+    @State private var syncCapsuleState: SyncStatusCapsule.State?
+    @State private var syncCapsuleDismissTask: Task<Void, Never>?
 
 
     private var manager: FeedarrSourcesManager? { appEnvironment?.feedarrSourcesManager }
@@ -131,6 +135,7 @@ struct FeedarrRootView: View {
                             if let topModel, let posterService {
                                 FeedarrTopView(model: topModel, posterService: posterService,
                                                isVisible: navigation.selectedPage == .top,
+                                               isManuallyRefreshing: refreshID != nil && navigation.selectedPage == .top,
                                                onSelectRelease: releaseSelectionAction)
                             } else {
                                 ProgressView()
@@ -143,6 +148,7 @@ struct FeedarrRootView: View {
                             if let releasesModel, let posterService {
                                 FeedarrReleasesView(model: releasesModel, posterService: posterService,
                                                     isVisible: navigation.selectedPage == .releases,
+                                                    isManuallyRefreshing: refreshID != nil && navigation.selectedPage == .releases,
                                                     isSearchPresented: $isReleasesSearchPresented,
                                                     onSelectRelease: releaseSelectionAction)
                             } else {
@@ -161,7 +167,8 @@ struct FeedarrRootView: View {
         .toolbarTitleDisplayMode(.inlineLarge)
         .toolbar {
             if presentation == .configured, navigation.selectedPage == .top, let topModel {
-                ToolbarItem(placement: .primaryAction) {
+                ToolbarItemGroup(placement: .primaryAction) {
+                    refreshButton
                     Menu {
                         Picker(AppLocalization.string("feedarr.top.sort"), selection: Binding(
                             get: { topModel.selectedSort }, set: { topModel.selectSort($0) }
@@ -183,6 +190,7 @@ struct FeedarrRootView: View {
                               systemImage: releasesModel.query == nil ? "magnifyingglass" : "text.magnifyingglass")
                     }
                     .accessibilityIdentifier("feedarr.releases.search")
+                    refreshButton
                     Button {
                         showingReleasesOptions = true
                     } label: {
@@ -241,12 +249,119 @@ struct FeedarrRootView: View {
             }
         }
         .onChange(of: manager?.configurationRevision) {
+            cancelManualRefresh()
             navigation.invalidateSelection(configurationRevision: manager?.configurationRevision)
+        }
+        .onChange(of: navigation.selectedPage) { cancelManualRefresh() }
+        .onDisappear { cancelManualRefresh() }
+        .overlay(alignment: .top) {
+            if let syncCapsuleState {
+                SyncStatusCapsule(state: syncCapsuleState, accentColor: .accentColor)
+                    .transition(.move(edge: .top).combined(with: .opacity)
+                        .combined(with: .scale(scale: 0.94, anchor: .top)))
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
+                    .allowsHitTesting(false)
+            }
         }
         .onChange(of: manager?.source?.id) {
             navigation.selectedPage = .top
             navigation.selectedRelease = nil
         }
+    }
+
+    private var refreshButton: some View {
+        Button {
+            startManualRefresh()
+        } label: {
+            if isActivePageLoading && refreshID == nil {
+                ProgressView()
+                    .controlSize(.small)
+                    .frame(width: 20, height: 20)
+            } else {
+                Image(systemName: "arrow.clockwise")
+            }
+        }
+        .disabled(isActivePageLoading || refreshID != nil)
+        .accessibilityLabel(AppLocalization.string("common.refresh"))
+        .accessibilityIdentifier("feedarr.refresh")
+    }
+
+    private var isActivePageLoading: Bool {
+        navigation.selectedPage == .top ? topModel?.isLoading == true : releasesModel?.isLoading == true
+    }
+
+    private func startManualRefresh() {
+        guard refreshID == nil, !isActivePageLoading,
+              presentation == .configured, let revision = manager?.configurationRevision else { return }
+        let id = UUID()
+        let page = navigation.selectedPage
+        refreshID = id
+        presentSyncCapsule(.synchronizing(AppLocalization.string("feedarr.sync.synchronizing")))
+        refreshTask = Task { @MainActor in
+            defer {
+                if refreshID == id {
+                    refreshTask = nil
+                    refreshID = nil
+                }
+            }
+            let failureMessage: String?
+            switch page {
+            case .top:
+                guard let topModel else { return }
+                let sort = topModel.selectedSort
+                await topModel.refresh()
+                guard sort == topModel.selectedSort, !topModel.isLoading else {
+                    if refreshID == id { dismissSyncCapsule() }
+                    return
+                }
+                failureMessage = topModel.failure?.message
+            case .releases:
+                guard let releasesModel else { return }
+                let filters = (releasesModel.query, releasesModel.selectedSort, releasesModel.selectedCategory)
+                await releasesModel.refresh()
+                guard filters == (releasesModel.query, releasesModel.selectedSort, releasesModel.selectedCategory),
+                      !releasesModel.isLoadingInitial else {
+                    if refreshID == id { dismissSyncCapsule() }
+                    return
+                }
+                failureMessage = releasesModel.failure?.message
+            }
+            guard !Task.isCancelled, refreshID == id,
+                  manager?.configurationRevision == revision, navigation.selectedPage == page else { return }
+            if let failureMessage {
+                presentSyncCapsule(.error(failureMessage), dismissAfter: .seconds(3))
+            } else {
+                presentSyncCapsule(.success(AppLocalization.string("feedarr.sync.success")), dismissAfter: .seconds(2))
+            }
+        }
+    }
+
+    private func presentSyncCapsule(_ state: SyncStatusCapsule.State, dismissAfter delay: Duration? = nil) {
+        syncCapsuleDismissTask?.cancel()
+        syncCapsuleDismissTask = nil
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.82)) {
+            syncCapsuleState = state
+        }
+        guard let delay else { return }
+        syncCapsuleDismissTask = Task { @MainActor in
+            try? await Task.sleep(for: delay)
+            guard !Task.isCancelled, syncCapsuleState == state else { return }
+            dismissSyncCapsule()
+        }
+    }
+
+    private func dismissSyncCapsule() {
+        syncCapsuleDismissTask?.cancel()
+        syncCapsuleDismissTask = nil
+        withAnimation(.easeOut(duration: 0.22)) { syncCapsuleState = nil }
+    }
+
+    private func cancelManualRefresh() {
+        refreshTask?.cancel()
+        refreshTask = nil
+        refreshID = nil
+        dismissSyncCapsule()
     }
 
     private var maximumReleasesColumns: Int {

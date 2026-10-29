@@ -12,6 +12,7 @@ struct FeedarrTopView: View {
     let model: FeedarrTopModel
     let posterService: FeedarrPosterService
     let isVisible: Bool
+    var isManuallyRefreshing = false
     var onSelectRelease: ((FeedarrRelease) -> Void)? = nil
     @Environment(\.horizontalSizeClass) private var sizeClass
 
@@ -19,7 +20,7 @@ struct FeedarrTopView: View {
         VStack(spacing: 0) {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 28) {
-                    if model.isLoading {
+                    if model.isLoading && model.response == nil && !isManuallyRefreshing {
                         ProgressView(AppLocalization.string("feedarr.top.loading"))
                             .frame(maxWidth: .infinity).padding(.vertical, 24)
                     }
@@ -42,7 +43,6 @@ struct FeedarrTopView: View {
                 .padding(.top, 16)
                 .padding(.bottom, 24)
             }
-            .refreshable { await model.refresh() }
         }
         .onAppear { model.setVisible(isVisible) }
         .onChange(of: isVisible) { model.setVisible(isVisible) }
