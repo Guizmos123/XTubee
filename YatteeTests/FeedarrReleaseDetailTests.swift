@@ -19,10 +19,13 @@ struct FeedarrReleaseDetailTests {
         defer { fixture.cleanUp() }
         let navigation = FeedarrNavigationState()
         let release = try decode(FeedarrDTOFixtures.completeRelease)
+        let select: (FeedarrRelease) -> Void = {
+            navigation.selectRelease($0, configurationRevision: fixture.manager.configurationRevision)
+        }
         let top = FeedarrTopView(model: fixture.top, posterService: fixture.posters, isVisible: true,
-                                 onSelectRelease: navigation.selectRelease)
+                                 onSelectRelease: select)
         let releases = FeedarrReleasesView(model: fixture.releases, posterService: fixture.posters, isVisible: false,
-                                           isSearchPresented: .constant(false), onSelectRelease: navigation.selectRelease)
+                                           isSearchPresented: .constant(false), onSelectRelease: select)
         let topCard = FeedarrReleaseCard(release: release, posterService: fixture.posters, onSelectRelease: top.onSelectRelease)
         let selectFromTop: (FeedarrRelease) -> Void = try #require(topCard.onSelectRelease)
         selectFromTop(topCard.release)
@@ -33,7 +36,7 @@ struct FeedarrReleaseDetailTests {
         let selectFromReleases: (FeedarrRelease) -> Void = try #require(releasesCard.onSelectRelease)
         selectFromReleases(releasesCard.release)
         #expect(navigation.selectedRelease == fromTop)
-        let sheet = FeedarrReleaseDetailSheet(release: try #require(navigation.selectedRelease), posterService: fixture.posters)
+        let sheet = FeedarrReleaseDetailSheet(selection: try #require(navigation.selectedRelease), posterService: fixture.posters)
         #expect(sheet.release == release)
         #expect(fixture.catalogueCalls == 0) // Selection only writes the root item, never a video or API action.
     }
@@ -56,7 +59,7 @@ struct FeedarrReleaseDetailTests {
         let calls = fixture.catalogueCalls
         let navigation = FeedarrNavigationState()
         navigation.selectedPage = .releases
-        navigation.selectRelease(try #require(items.first))
+        navigation.selectRelease(try #require(items.first), configurationRevision: fixture.manager.configurationRevision)
         let item = Binding(get: { navigation.selectedRelease }, set: { navigation.selectedRelease = $0 })
         item.wrappedValue = nil // Same write performed by sheet(item:) on dismiss/swipe.
         #expect(navigation.selectedPage == .releases && navigation.selectedRelease == nil)
@@ -89,6 +92,94 @@ struct FeedarrReleaseDetailTests {
         #expect(metadata.mediaRows.count == 5)
         #expect(metadata.statisticsRows.map(\.value) == ["0", "0", "120"])
         #expect(metadata.releaseRows.allSatisfy { !$0.value.isEmpty })
+    }
+
+    @Test func configurationChangeInvalidatesSelectionWithoutChangingPage() throws {
+        let fixture = DetailFixture()
+        defer { fixture.cleanUp() }
+        let navigation = FeedarrNavigationState()
+        navigation.selectedPage = .releases
+        navigation.selectRelease(try decode(FeedarrDTOFixtures.completeRelease),
+                                 configurationRevision: fixture.manager.configurationRevision)
+        let selected = try #require(navigation.selectedRelease)
+        navigation.invalidateSelection(configurationRevision: fixture.manager.configurationRevision)
+        #expect(navigation.selectedRelease == selected)
+        try changeServer(fixture.manager)
+        #expect(!selected.isCurrent(sources: fixture.manager))
+        navigation.invalidateSelection(configurationRevision: fixture.manager.configurationRevision)
+        #expect(navigation.selectedRelease == nil)
+        #expect(navigation.selectedPage == .releases)
+    }
+
+    @Test func staleSelectionCannotStartDownloadEvenAfterReturningToOriginalServer() async throws {
+        let fixture = DetailFixture()
+        defer { fixture.cleanUp() }
+        let selection = FeedarrReleaseSelection(release: try decode(FeedarrDTOFixtures.completeRelease),
+                                                configurationRevision: fixture.manager.configurationRevision)
+        try changeServer(fixture.manager)
+        try changeServer(fixture.manager, url: "https://feedarr.invalid")
+        var calls = 0
+        await #expect(throws: FeedarrAPIError.obsoleteResponse) {
+            try await selection.downloadTorrent(sources: fixture.manager) {
+                calls += 1
+                return .magnet("magnet:?xt=urn:btih:old")
+            }
+        }
+        #expect(calls == 0)
+    }
+
+    @Test(arguments: [false, true])
+    func obsoleteAsynchronousResultsAreRejected(andCleanedFile: Bool) async throws {
+        let fixture = DetailFixture()
+        defer { fixture.cleanUp() }
+        let selection = FeedarrReleaseSelection(release: try decode(FeedarrDTOFixtures.completeRelease),
+                                                configurationRevision: fixture.manager.configurationRevision)
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("FeedarrTorrent-" + UUID().uuidString)
+        let file = directory.appendingPathComponent("release.torrent")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        var pending: CheckedContinuation<FeedarrTorrentResult, Never>?
+        let download = Task { @MainActor in
+            await #expect(throws: FeedarrAPIError.obsoleteResponse) {
+                try await selection.downloadTorrent(sources: fixture.manager) {
+                    await withCheckedContinuation { pending = $0 }
+                }
+            }
+        }
+        while pending == nil { await Task.yield() }
+        try changeServer(fixture.manager)
+        if andCleanedFile {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+            try Data("temporary result".utf8).write(to: file)
+            pending?.resume(returning: .file(file))
+        } else {
+            pending?.resume(returning: .magnet("magnet:?xt=urn:btih:old"))
+        }
+        await download.value
+        #expect(!FileManager.default.fileExists(atPath: directory.path))
+    }
+
+    @Test func unchangedConfigurationAllowsNormalActions() async throws {
+        let fixture = DetailFixture()
+        defer { fixture.cleanUp() }
+        let release = try decode(FeedarrDTOFixtures.completeRelease)
+        let selection = FeedarrReleaseSelection(release: release, configurationRevision: fixture.manager.configurationRevision)
+        #expect(selection.isCurrent(sources: fixture.manager))
+        var calls = 0
+        let result = try await selection.downloadTorrent(sources: fixture.manager) {
+            calls += 1
+            return .magnet("magnet:?xt=urn:btih:current")
+        }
+        guard case .magnet(let link) = result else { Issue.record("Expected current magnet"); return }
+        #expect(link == "magnet:?xt=urn:btih:current")
+        #expect(calls == 1)
+        #expect(selection.release == release)
+        #expect(selection.isCurrent(sources: fixture.manager))
+    }
+
+    private func changeServer(_ manager: FeedarrSourcesManager, url: String = "https://other.invalid") throws {
+        let source = try #require(manager.source)
+        _ = try manager.update(id: source.id, name: source.name, serverURL: url, usesBasicAuth: false)
+        #expect(manager.source?.id == source.id)
     }
 
     private func decode(_ json: String) throws -> FeedarrRelease {

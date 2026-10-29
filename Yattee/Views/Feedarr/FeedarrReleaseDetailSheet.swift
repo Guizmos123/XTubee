@@ -8,9 +8,37 @@
 import Foundation
 import SwiftUI
 
+/// The immutable configuration context of a release selected from the catalogue.
+struct FeedarrReleaseSelection: Identifiable, Equatable, Sendable {
+    let release: FeedarrRelease
+    let configurationRevision: UUID
+    var id: String { configurationRevision.uuidString + ":" + String(release.id) }
+
+    @MainActor
+    func isCurrent(sources: FeedarrSourcesManager?) -> Bool {
+        guard let sources else { return false }
+        return sources.source != nil && sources.loadError == nil && sources.configurationRevision == configurationRevision
+    }
+
+    @MainActor
+    func downloadTorrent(sources: FeedarrSourcesManager,
+                         using download: @MainActor () async throws -> FeedarrTorrentResult) async throws -> FeedarrTorrentResult {
+        try Task.checkCancellation()
+        guard isCurrent(sources: sources) else { throw FeedarrAPIError.obsoleteResponse }
+        let result = try await download()
+        guard !Task.isCancelled, isCurrent(sources: sources) else {
+            if case .file(let url) = result { FeedarrTorrentService.cleanUp(url) }
+            if Task.isCancelled { throw CancellationError() }
+            throw FeedarrAPIError.obsoleteResponse
+        }
+        return result
+    }
+}
+
 #if os(iOS)
 struct FeedarrReleaseDetailSheet: View {
-    let release: FeedarrRelease
+    let selection: FeedarrReleaseSelection
+    var release: FeedarrRelease { selection.release }
     let posterService: FeedarrPosterService
     var trackerService: FeedarrTrackerService? = nil
     @Environment(\.dismiss) private var dismiss
@@ -30,6 +58,7 @@ struct FeedarrReleaseDetailSheet: View {
 
     private var metadata: FeedarrReleaseDetailMetadata { FeedarrReleaseDetailMetadata(release: release) }
     private var tracker: FeedarrTracker? { trackerService?.tracker(for: release.sourceId) }
+    private var isCurrentSelection: Bool { selection.isCurrent(sources: appEnvironment?.feedarrSourcesManager) }
 
     var body: some View {
         NavigationStack {
@@ -68,14 +97,17 @@ struct FeedarrReleaseDetailSheet: View {
                 .padding(20)
                 .frame(maxWidth: .infinity)
             }
-            .task { await trackerService?.loadIfNeeded() }
-            .refreshable { await trackerService?.refresh() }
+            .task {
+                guard isCurrentSelection else { dismiss(); return }
+                await trackerService?.loadIfNeeded()
+            }
+            .refreshable { if isCurrentSelection { await trackerService?.refresh() } }
             .sheet(isPresented: $showingExport, onDismiss: cleanUpTorrent) {
-                if let torrentFile { ShareSheet(items: [torrentFile]) }
+                if isCurrentSelection, let torrentFile { ShareSheet(items: [torrentFile]) }
             }
             .alert(AppLocalization.string("feedarr.download.magnetTitle"), isPresented: $showingMagnet) {
                 Button(AppLocalization.string("feedarr.download.copyMagnet")) {
-                    if let magnetLink { UIPasteboard.general.string = magnetLink }
+                    if isCurrentSelection, let magnetLink { UIPasteboard.general.string = magnetLink }
                     magnetLink = nil
                 }
                 Button(AppLocalization.string("common.cancel"), role: .cancel) { magnetLink = nil }
@@ -95,6 +127,9 @@ struct FeedarrReleaseDetailSheet: View {
             .onChange(of: appEnvironment?.feedarrSourcesManager.configurationRevision) { _, _ in
                 cancelDownload()
                 showingExport = false
+                externalLinkTask?.cancel()
+                externalLinkTask = nil
+                dismiss()
             }
             .reactiveNavigationTitle(AppLocalization.string("feedarr.detail.title"))
             .navigationBarTitleDisplayMode(.inline)
@@ -120,17 +155,18 @@ struct FeedarrReleaseDetailSheet: View {
                     .contentShape(Circle())
             }
             .buttonStyle(.plain)
-            .disabled(externalLinkTask != nil)
+            .disabled(externalLinkTask != nil || !isCurrentSelection)
             .accessibilityLabel(AppLocalization.string("feedarr.links.open") + " " + link.id)
         }
     }
 
     private func openExternalLink(_ url: URL) {
-        guard externalLinkTask == nil else { return }
+        guard isCurrentSelection, externalLinkTask == nil else { return }
         externalLinkTask = Task {
             defer { if !Task.isCancelled { externalLinkTask = nil } }
+            guard isCurrentSelection else { return }
             let allowed = await FeedarrExternalLinks.mayOpen(url)
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, isCurrentSelection else { return }
             if allowed { openURL(url) }
             else { externalLinkRejected = true }
         }
@@ -153,11 +189,11 @@ struct FeedarrReleaseDetailSheet: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(AppLocalization.string("feedarr.download.title"))
-        .disabled(downloadTask != nil || showingExport || appEnvironment?.feedarrSourcesManager.source == nil)
+        .disabled(downloadTask != nil || showingExport || !isCurrentSelection)
     }
 
     private func downloadTorrent() {
-        guard downloadTask == nil, let manager = appEnvironment?.feedarrSourcesManager else { return }
+        guard isCurrentSelection, downloadTask == nil, let manager = appEnvironment?.feedarrSourcesManager else { return }
         let token = UUID()
         downloadToken = token
         downloadFailed = false
@@ -165,8 +201,10 @@ struct FeedarrReleaseDetailSheet: View {
         downloadTask = Task {
             defer { if downloadToken == token { downloadTask = nil } }
             do {
-                let result = try await service.download(releaseID: release.id)
-                guard !Task.isCancelled, downloadToken == token else {
+                let result = try await selection.downloadTorrent(sources: manager) {
+                    try await service.download(releaseID: release.id)
+                }
+                guard !Task.isCancelled, downloadToken == token, isCurrentSelection else {
                     if case .file(let url) = result { FeedarrTorrentService.cleanUp(url) }
                     return
                 }
@@ -175,7 +213,7 @@ struct FeedarrReleaseDetailSheet: View {
                 case .magnet(let link): magnetLink = link; showingMagnet = true
                 }
             } catch {
-                guard !Task.isCancelled, downloadToken == token,
+                guard !Task.isCancelled, downloadToken == token, isCurrentSelection,
                       (error as? FeedarrAPIError) != .cancelled,
                       (error as? FeedarrAPIError) != .obsoleteResponse else { return }
                 downloadFailed = true
@@ -293,7 +331,7 @@ struct FeedarrReleaseDetailSheet: View {
                                 .multilineTextAlignment(.leading)
                             }
                             .buttonStyle(.plain)
-                            .disabled(externalLinkTask != nil)
+                            .disabled(externalLinkTask != nil || !isCurrentSelection)
                             .accessibilityHint(AppLocalization.string("feedarr.links.open") + " Tracker")
                         } else {
                             Text(technicalTitle)

@@ -31,9 +31,16 @@ enum FeedarrPage: String, CaseIterable, Identifiable, Sendable {
 @Observable
 final class FeedarrNavigationState {
     var selectedPage: FeedarrPage = .top
-    var selectedRelease: FeedarrRelease?
+    var selectedRelease: FeedarrReleaseSelection?
 
-    func selectRelease(_ release: FeedarrRelease) { selectedRelease = release }
+    func selectRelease(_ release: FeedarrRelease, configurationRevision: UUID) {
+        selectedRelease = FeedarrReleaseSelection(release: release, configurationRevision: configurationRevision)
+    }
+
+    func invalidateSelection(configurationRevision: UUID?) {
+        guard selectedRelease?.configurationRevision != configurationRevision else { return }
+        selectedRelease = nil
+    }
 }
 
 enum FeedarrRootPresentation: Equatable, Sendable {
@@ -74,6 +81,18 @@ struct FeedarrRootView: View {
         FeedarrRootPresentation(source: manager?.source, loadError: manager?.loadError)
     }
 
+    private var releaseSelectionAction: (FeedarrRelease) -> Void {
+        // Capture the revision of the catalogue currently rendered, not the one
+        // that happens to be active when a delayed tap callback executes.
+        let revision = manager?.configurationRevision
+        return { release in
+            guard let revision else { return }
+            let selection = FeedarrReleaseSelection(release: release, configurationRevision: revision)
+            guard selection.isCurrent(sources: manager) else { return }
+            navigation.selectRelease(release, configurationRevision: revision)
+        }
+    }
+
     var body: some View {
         Group {
             switch presentation {
@@ -112,7 +131,7 @@ struct FeedarrRootView: View {
                             if let topModel, let posterService {
                                 FeedarrTopView(model: topModel, posterService: posterService,
                                                isVisible: navigation.selectedPage == .top,
-                                               onSelectRelease: navigation.selectRelease)
+                                               onSelectRelease: releaseSelectionAction)
                             } else {
                                 ProgressView()
                             }
@@ -125,7 +144,7 @@ struct FeedarrRootView: View {
                                 FeedarrReleasesView(model: releasesModel, posterService: posterService,
                                                     isVisible: navigation.selectedPage == .releases,
                                                     isSearchPresented: $isReleasesSearchPresented,
-                                                    onSelectRelease: navigation.selectRelease)
+                                                    onSelectRelease: releaseSelectionAction)
                             } else {
                                 ProgressView()
                             }
@@ -214,12 +233,15 @@ struct FeedarrRootView: View {
                 )
             }
         }
-        .sheet(item: $navigation.selectedRelease) { release in
+        .sheet(item: $navigation.selectedRelease) { selection in
             if let posterService {
-                FeedarrReleaseDetailSheet(release: release, posterService: posterService, trackerService: trackerService)
+                FeedarrReleaseDetailSheet(selection: selection, posterService: posterService, trackerService: trackerService)
                     .presentationDetents([.large])
                     .presentationDragIndicator(.visible)
             }
+        }
+        .onChange(of: manager?.configurationRevision) {
+            navigation.invalidateSelection(configurationRevision: manager?.configurationRevision)
         }
         .onChange(of: manager?.source?.id) {
             navigation.selectedPage = .top
