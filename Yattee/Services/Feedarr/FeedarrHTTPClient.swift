@@ -81,6 +81,7 @@ final class URLSessionFeedarrTransport: FeedarrHTTPTransport, Sendable {
         try await data(for: request, maximumResponseSize: FeedarrHTTPClient.defaultMaximumResponseSize)
     }
 
+    @concurrent
     func data(for request: URLRequest, maximumResponseSize: Int) async throws -> (Data, URLResponse) {
         let (bytes, response) = try await session.bytes(for: request)
         defer { bytes.task.cancel() }
@@ -186,6 +187,7 @@ struct FeedarrHTTPClient: Sendable {
         try await response(pathComponents: pathComponents, queryItems: [], downloading: true)
     }
 
+    @concurrent
     private func response(pathComponents: [String], queryItems: [URLQueryItem], downloading: Bool) async throws -> (Data, HTTPURLResponse) {
         if Task.isCancelled { throw FeedarrHTTPError.cancelled }
         let url = try endpointURL(pathComponents: pathComponents, queryItems: queryItems)

@@ -154,7 +154,7 @@ final class FeedarrAPIClient {
             try validateActive(source: source, credentials: credentials)
             do { try http.validateStatus(response) }
             catch let error as FeedarrHTTPError {
-                let problem = try? JSONDecoder().decode(FeedarrAPIProblem.self, from: data)
+                let problem: FeedarrAPIProblem? = try? await Self.decode(data)
                 throw FeedarrAPIError.http(error, problem: problem)
             }
             let result: Response = try await Self.decode(data)
@@ -183,8 +183,12 @@ final class FeedarrAPIClient {
         }
     }
 
-    private nonisolated static func decode<Response: Decodable & Sendable>(_ data: Data) async throws -> Response {
+    // Explicitly leave the caller's actor, including with NonisolatedNonsendingByDefault.
+    @concurrent
+    nonisolated static func decode<Response: Decodable & Sendable>(_ data: Data) async throws -> Response {
         try Task.checkCancellation()
-        return try JSONDecoder().decode(Response.self, from: data)
+        let response = try JSONDecoder().decode(Response.self, from: data)
+        try Task.checkCancellation()
+        return response
     }
 }

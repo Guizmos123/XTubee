@@ -156,7 +156,7 @@ struct FeedarrAPIClientTests {
         #expect(FeedarrHTTPClient.defaultMaximumResponseSize == 1_024 * 1_024)
     }
 
-    @Test(arguments: ["declared", "streamed"])
+    @Test(arguments: ["declared", "streamed", "underdeclared"])
     func productionTransportBoundsBody(mode: String) async throws {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [BoundedFeedarrProtocol.self]
@@ -165,6 +165,14 @@ struct FeedarrAPIClientTests {
         await #expect(throws: FeedarrHTTPError.responseTooLarge(maximumBytes: 16)) {
             try await http.get(pathComponents: [mode])
         }
+    }
+
+    @Test func productionTransportAcceptsExactLimit() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [BoundedFeedarrProtocol.self]
+        let transport = URLSessionFeedarrTransport(configuration: configuration)
+        let http = try FeedarrHTTPClient(serverURL: "https://feedarr.invalid", transport: transport, maximumResponseSize: 32)
+        #expect(try await http.get(pathComponents: ["declared"]).count == 32)
     }
 
     @Test func concurrentSessionRequests() async throws {
@@ -185,7 +193,12 @@ private final class BoundedFeedarrProtocol: URLProtocol, @unchecked Sendable {
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
-        let headers = request.url!.lastPathComponent == "declared" ? ["Content-Length": "32"] : [:]
+        let headers: [String: String]
+        switch request.url!.lastPathComponent {
+        case "declared": headers = ["Content-Length": "32"]
+        case "underdeclared": headers = ["Content-Length": "8"]
+        default: headers = [:]
+        }
         let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: headers)!
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: Data(repeating: 32, count: 32))
