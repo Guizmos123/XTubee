@@ -136,7 +136,8 @@ struct FeedarrRootView: View {
                                 FeedarrTopView(model: topModel, posterService: posterService,
                                                isVisible: navigation.selectedPage == .top,
                                                isManuallyRefreshing: refreshID != nil && navigation.selectedPage == .top,
-                                               onSelectRelease: releaseSelectionAction)
+                                               onSelectRelease: releaseSelectionAction,
+                                               onRefresh: { await refreshFromPull(page: .top) })
                             } else {
                                 ProgressView()
                             }
@@ -150,7 +151,8 @@ struct FeedarrRootView: View {
                                                     isVisible: navigation.selectedPage == .releases,
                                                     isManuallyRefreshing: refreshID != nil && navigation.selectedPage == .releases,
                                                     isSearchPresented: $isReleasesSearchPresented,
-                                                    onSelectRelease: releaseSelectionAction)
+                                                    onSelectRelease: releaseSelectionAction,
+                                                    onRefresh: { await refreshFromPull(page: .releases) })
                             } else {
                                 ProgressView()
                             }
@@ -166,9 +168,21 @@ struct FeedarrRootView: View {
         .reactiveNavigationTitle(AppLocalization.string("feedarr.title"))
         .toolbarTitleDisplayMode(.inlineLarge)
         .toolbar {
+            if presentation == .configured, let releasesModel {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        navigation.selectedPage = .releases
+                        isReleasesSearchPresented = true
+                    } label: {
+                        Label(AppLocalization.string("feedarr.releases.search.placeholder"),
+                              systemImage: releasesModel.query == nil ? "magnifyingglass" : "text.magnifyingglass")
+                    }
+                    .accessibilityIdentifier("feedarr.releases.search")
+                }
+            }
             if presentation == .configured, navigation.selectedPage == .top, let topModel {
                 ToolbarItemGroup(placement: .primaryAction) {
-                    refreshButton
+                    if UIDevice.current.userInterfaceIdiom != .phone { refreshButton }
                     Menu {
                         Picker(AppLocalization.string("feedarr.top.sort"), selection: Binding(
                             get: { topModel.selectedSort }, set: { topModel.selectSort($0) }
@@ -181,16 +195,9 @@ struct FeedarrRootView: View {
                         Label(AppLocalization.string("feedarr.top.sort"), systemImage: "slider.horizontal.3")
                     }
                 }
-            } else if presentation == .configured, navigation.selectedPage == .releases, let releasesModel {
+            } else if presentation == .configured, navigation.selectedPage == .releases, releasesModel != nil {
                 ToolbarItemGroup(placement: .primaryAction) {
-                    Button {
-                        isReleasesSearchPresented = true
-                    } label: {
-                        Label(AppLocalization.string("feedarr.releases.search.placeholder"),
-                              systemImage: releasesModel.query == nil ? "magnifyingglass" : "text.magnifyingglass")
-                    }
-                    .accessibilityIdentifier("feedarr.releases.search")
-                    refreshButton
+                    if UIDevice.current.userInterfaceIdiom != .phone { refreshButton }
                     Button {
                         showingReleasesOptions = true
                     } label: {
@@ -291,13 +298,21 @@ struct FeedarrRootView: View {
         navigation.selectedPage == .top ? topModel?.isLoading == true : releasesModel?.isLoading == true
     }
 
-    private func startManualRefresh() {
+    private func refreshFromPull(page: FeedarrPage) async {
+        guard navigation.selectedPage == page else { return }
+        // The root owns the task: Releases may replace its ScrollView on success.
+        await startManualRefresh(isPullToRefresh: true)?.value
+    }
+
+    @discardableResult
+    private func startManualRefresh(isPullToRefresh: Bool = false) -> Task<Void, Never>? {
         guard refreshID == nil, !isActivePageLoading,
-              presentation == .configured, let revision = manager?.configurationRevision else { return }
+              presentation == .configured, let revision = manager?.configurationRevision else { return nil }
         let id = UUID()
         let page = navigation.selectedPage
         refreshID = id
-        presentSyncCapsule(.synchronizing(AppLocalization.string("feedarr.sync.synchronizing")))
+        if isPullToRefresh { dismissSyncCapsule() }
+        else { presentSyncCapsule(.synchronizing(AppLocalization.string("feedarr.sync.synchronizing"))) }
         refreshTask = Task { @MainActor in
             defer {
                 if refreshID == id {
@@ -335,6 +350,7 @@ struct FeedarrRootView: View {
                 presentSyncCapsule(.success(AppLocalization.string("feedarr.sync.success")), dismissAfter: .seconds(2))
             }
         }
+        return refreshTask
     }
 
     private func presentSyncCapsule(_ state: SyncStatusCapsule.State, dismissAfter delay: Duration? = nil) {
