@@ -175,6 +175,8 @@ final class PlayerService {
     /// Tracks the last skipped segment to prevent duplicate skips.
     private var lastSkippedSegmentID: String?
 
+    private var lastNowPlayingTimeUpdate: (videoID: VideoID, bucket: Double, duration: TimeInterval, isPlaying: Bool)?
+
     /// Tracks if the current video ended naturally (reached EOF).
     /// Used to prevent saving progress when switching to next video after natural completion.
     private var videoEndedNaturally = false
@@ -376,6 +378,7 @@ final class PlayerService {
         // full stream list kept around for the picker survives the switch.
         if isNewVideo {
             lastSavedProgress = nil
+            lastNowPlayingTimeUpdate = nil
             availableStreams = []
         }
 
@@ -747,6 +750,7 @@ final class PlayerService {
             saveProgress()
         }
         nowPlayingService.updatePlaybackRate(isPlaying: false, currentTime: state.currentTime)
+        lastNowPlayingTimeUpdate = nil
     }
 
     /// Resumes playback.
@@ -755,6 +759,7 @@ final class PlayerService {
         currentBackend?.play()
         state.setPlaybackState(.playing)
         nowPlayingService.updatePlaybackRate(isPlaying: true, currentTime: state.currentTime)
+        lastNowPlayingTimeUpdate = nil
     }
 
     /// Toggles play/pause.
@@ -819,10 +824,12 @@ final class PlayerService {
     ///   - time: The time to seek to in seconds
     ///   - showLoading: If true, show loading state during seek (e.g., for early SponsorBlock skips)
     func seek(to time: TimeInterval, showLoading: Bool = false) async {
+        lastNowPlayingTimeUpdate = nil
         state.isSeeking = true
         await currentBackend?.seek(to: time, showLoading: showLoading)
         state.isSeeking = false
         state.currentTime = time
+        updateNowPlayingTime()
     }
 
     /// Seeks forward by a duration.
@@ -830,6 +837,7 @@ final class PlayerService {
         state.isSeeking = true
         let newTime = state.currentTime + seconds
         Task {
+            lastNowPlayingTimeUpdate = nil
             await currentBackend?.seek(to: newTime, showLoading: false)
             state.isSeeking = false
         }
@@ -840,6 +848,7 @@ final class PlayerService {
         state.isSeeking = true
         let newTime = max(state.currentTime - seconds, 0)
         Task {
+            lastNowPlayingTimeUpdate = nil
             await currentBackend?.seek(to: newTime, showLoading: false)
             state.isSeeking = false
         }
@@ -904,6 +913,7 @@ final class PlayerService {
         #endif
 
         currentBackend?.handleScenePhase(phase, isPiPActive: isPiPActive)
+        if phase == .active { updateNowPlayingTime(force: true) }
     }
 
     /// Plays the next video in queue, respecting the current queue mode.
@@ -3097,6 +3107,21 @@ final class PlayerService {
         saveProgressAndSync()
     }
 
+    /// Publish elapsed time once per five-second playback bucket. Explicit seek
+    /// and lifecycle events can refresh within the same bucket; metadata is kept.
+    private func updateNowPlayingTime(force: Bool = false) {
+        guard loadingVideoID == nil, let videoID = state.currentVideo?.id, state.currentTime.isFinite else { return }
+        let update = (videoID: videoID, bucket: floor(state.currentTime / 5),
+                      duration: state.duration, isPlaying: state.playbackState == .playing)
+        if !force, let previous = lastNowPlayingTimeUpdate,
+           previous.videoID == update.videoID, previous.bucket == update.bucket,
+           previous.duration == update.duration, previous.isPlaying == update.isPlaying {
+            return
+        }
+        lastNowPlayingTimeUpdate = update
+        nowPlayingService.updatePlaybackTime(currentTime: state.currentTime, duration: update.duration, isPlaying: update.isPlaying)
+    }
+
     private func checkSponsorBlockSegments(at time: Double) {
         // Read settings - use defaults if settings manager not available
         let enabled = settingsManager?.sponsorBlockEnabled ?? true
@@ -3118,7 +3143,7 @@ final class PlayerService {
                 }
             }
         } else {
-            state.currentSegment = nil
+            if state.currentSegment != nil { state.currentSegment = nil }
             // Clear last skipped when not in any segment (allows re-skip if user seeks back)
             lastSkippedSegmentID = nil
         }
@@ -3152,6 +3177,7 @@ final class PlayerService {
         progressSaveTimer?.invalidate()
         progressSaveTimer = nil
         lastSavedProgress = nil
+        lastNowPlayingTimeUpdate = nil
 
         // Remove audio session interruption observer
         #if os(iOS) || os(tvOS)
@@ -3261,15 +3287,7 @@ extension PlayerService: PlayerBackendDelegate {
         delegate?.playerService(self, didUpdateTime: time)
         checkSponsorBlockSegments(at: time)
 
-        // Update Now Playing time periodically (every ~5 seconds to avoid excessive updates)
-        let shouldUpdateNowPlaying = Int(time) % 5 == 0
-        if shouldUpdateNowPlaying {
-            nowPlayingService.updatePlaybackTime(
-                currentTime: time,
-                duration: state.duration,
-                isPlaying: state.playbackState == .playing
-            )
-        }
+        updateNowPlayingTime()
     }
 
     func backend(_ backend: any PlayerBackend, didUpdateDuration duration: TimeInterval) {
