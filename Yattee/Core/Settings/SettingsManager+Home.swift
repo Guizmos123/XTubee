@@ -128,7 +128,10 @@ extension SettingsManager {
             }
             // Freeze the legacy shared values once, before subsequent YouTube edits.
             let migrated = FeedarrHomePresentation(layout: homeSectionLayout, itemsLimit: homeSectionItemsLimit)
-            homeFeedarrPresentation = migrated
+            _homeFeedarrPresentation = migrated
+            if let data = try? JSONEncoder().encode(migrated) {
+                set(data, for: .homeFeedarrPresentation)
+            }
             return migrated
         }
         set {
