@@ -855,6 +855,13 @@ final class MPVRenderView: UIView {
 
     private func performRender() {
         defer { isRendering = false }
+        // A foreground/resume render may still be queued when the app backgrounds.
+        // GPU work is forbidden then, except for the existing PiP render path.
+        guard !isInBackground || isPiPActive else {
+            MPVLogging.log("performRender: skipped (app in background)")
+            return
+        }
+
         let frameStart = Date()
         let tFrameStart = CACurrentMediaTime()
         let gapSincePrevFrame = lastRenderStartMediaTime > 0 ? tFrameStart - lastRenderStartMediaTime : 0
@@ -922,8 +929,11 @@ final class MPVRenderView: UIView {
 
         let tRenderEnd = CACurrentMediaTime()
 
-        // Present the renderbuffer (skip when PiP is active - main view is hidden anyway)
-        if !isPiPActive {
+        // Recheck after rendering: the app may have backgrounded during GPU work.
+        // PiP keeps its existing offscreen capture and swap reporting below.
+        if isInBackground && !isPiPActive {
+            MPVLogging.log("performRender: present skipped (app entered background)")
+        } else if !isPiPActive {
             glBindRenderbuffer(GLenum(GL_RENDERBUFFER), colorRenderbuffer)
             let presented = eaglContext.presentRenderbuffer(Int(GL_RENDERBUFFER))
             if !presented {
