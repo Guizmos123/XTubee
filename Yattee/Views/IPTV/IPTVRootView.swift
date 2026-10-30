@@ -37,6 +37,20 @@ private struct IPTVSearchConfiguration {
 
 private extension View {
     @ViewBuilder
+    func iptvRefreshable(_ action: (@MainActor @Sendable () async -> Void)?) -> some View {
+        #if os(iOS)
+        if let action {
+            self.refreshable { await action() }
+                .scrollBounceBehavior(.always, axes: .vertical)
+        } else {
+            self
+        }
+        #else
+        self
+        #endif
+    }
+
+    @ViewBuilder
     func iptvSearchable(_ configuration: IPTVSearchConfiguration?) -> some View {
         if let configuration, configuration.isPresented.wrappedValue {
             #if os(iOS)
@@ -91,6 +105,7 @@ struct IPTVRootView: View {
     @State private var showingIPTVOptions = false
     @State private var manualCatalogRefreshTask: Task<Void, Never>?
     @State private var manualCatalogRefreshID: UUID?
+    @State private var manualCatalogRefreshIsPullToRefresh = false
     @State private var automaticSynchronizationID: UUID?
     @State private var automaticSynchronizationDidStart = false
     @State private var syncCapsuleState: SyncStatusCapsule.State?
@@ -164,24 +179,26 @@ struct IPTVRootView: View {
                 .accessibilityLabel(AppLocalization.string("iptv.search.prompt"))
                 #endif
 
-                Button {
-                    startManualCatalogRefresh()
-                } label: {
-                    if isCatalogLoading {
-                        ProgressView()
-                            .controlSize(.small)
-                            .frame(width: 20, height: 20)
-                    } else {
-                        Image(systemName: "arrow.clockwise")
+                if showsToolbarRefreshButton {
+                    Button {
+                        startManualCatalogRefresh()
+                    } label: {
+                        if isCatalogLoading {
+                            ProgressView()
+                                .controlSize(.small)
+                                .frame(width: 20, height: 20)
+                        } else {
+                            Image(systemName: "arrow.clockwise")
+                        }
                     }
+                    .disabled(
+                        activeSource == nil
+                            || catalogService == nil
+                            || epgService == nil
+                            || isCatalogLoading
+                    )
+                    .accessibilityLabel(AppLocalization.string("iptv.catalog.refresh"))
                 }
-                .disabled(
-                    activeSource == nil
-                        || catalogService == nil
-                        || epgService == nil
-                        || isCatalogLoading
-                )
-                .accessibilityLabel(AppLocalization.string("iptv.catalog.refresh"))
 
                 Button {
                     showingIPTVOptions = true
@@ -306,6 +323,7 @@ struct IPTVRootView: View {
                     globalSearchSuggestions
                 }
                 .iptvSearchable(iptvSearchConfiguration)
+                .iptvRefreshable { await refreshFromPull() }
             } else {
                 VStack(spacing: 0) {
                     Picker("", selection: $selectedSection) {
@@ -329,24 +347,28 @@ struct IPTVRootView: View {
                     selectedCatalogSection(catalog: catalog, source: source)
                 }
             }
-        } else if catalogState.loadingState == .loading || catalogService == nil {
+        } else if (catalogState.loadingState == .loading || catalogService == nil) && !manualCatalogRefreshIsPullToRefresh {
             ContentUnavailableView {
                 Label(AppLocalization.string("iptv.catalog.loading"), systemImage: "play.tv")
             } description: {
                 ProgressView()
             }
         } else {
-            ContentUnavailableView {
-                Label(AppLocalization.string("iptv.catalog.error.title"), systemImage: "exclamationmark.triangle")
-            } description: {
-                Text(AppLocalization.string("iptv.catalog.error.description"))
-            } actions: {
-                Button(AppLocalization.string("common.retry")) {
-                    startManualCatalogRefresh()
+            ScrollView {
+                ContentUnavailableView {
+                    Label(AppLocalization.string("iptv.catalog.error.title"), systemImage: "exclamationmark.triangle")
+                } description: {
+                    Text(AppLocalization.string("iptv.catalog.error.description"))
+                } actions: {
+                    Button(AppLocalization.string("common.retry")) {
+                        startManualCatalogRefresh()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    sourcesLink
                 }
-                .buttonStyle(.borderedProminent)
-                sourcesLink
+                .frame(maxWidth: .infinity, minHeight: 360)
             }
+            .iptvRefreshable { await refreshFromPull() }
         }
     }
 
@@ -374,7 +396,8 @@ struct IPTVRootView: View {
                 showsNavigationChrome: false,
                 searchConfiguration: iptvSearchConfiguration,
                 epgCatalog: epgState.catalog,
-                epgReferenceDate: epgReferenceDate
+                epgReferenceDate: epgReferenceDate,
+                onRefresh: { await refreshFromPull() }
             )
         }
     }
@@ -387,6 +410,7 @@ struct IPTVRootView: View {
                     .frame(maxWidth: .infinity, minHeight: 360)
             }
             .iptvSearchable(iptvSearchConfiguration)
+                .iptvRefreshable { await refreshFromPull() }
         } else {
             let orderedCategories = hiddenCategoriesPreferences.ordered(
                 catalog.categories,
@@ -417,7 +441,8 @@ struct IPTVRootView: View {
                                     favoritesManager: favoritesManager,
                                     onStreamSelected: streamSelectionAction,
                                     epgCatalog: epgState.catalog,
-                                    epgReferenceDate: epgReferenceDate
+                                    epgReferenceDate: epgReferenceDate,
+                                    onRefresh: { await refreshFromPull() }
                                 )
                             }
                         } label: {
@@ -457,6 +482,7 @@ struct IPTVRootView: View {
 
             }
             .iptvSearchable(iptvSearchConfiguration)
+                .iptvRefreshable { await refreshFromPull() }
         }
     }
 
@@ -472,7 +498,7 @@ struct IPTVRootView: View {
             }
         }
 
-        if catalogState.loadingState == .refreshing {
+        if catalogState.loadingState == .refreshing && !manualCatalogRefreshIsPullToRefresh {
             Section {
                 HStack(spacing: 10) {
                     ProgressView().controlSize(.small)
@@ -527,7 +553,8 @@ struct IPTVRootView: View {
                                 favoritesManager: favoritesManager,
                                 onStreamSelected: streamSelectionAction,
                                 epgCatalog: epgState.catalog,
-                                epgReferenceDate: epgReferenceDate
+                                epgReferenceDate: epgReferenceDate,
+                                onRefresh: { await refreshFromPull() }
                             )
                         } label: {
                             Label(category.name, systemImage: "rectangle.stack")
@@ -815,6 +842,18 @@ struct IPTVRootView: View {
         )
     }
 
+    private var showsToolbarRefreshButton: Bool {
+        #if os(iOS)
+        UIDevice.current.userInterfaceIdiom != .phone
+        #else
+        true
+        #endif
+    }
+
+    private func refreshFromPull() async {
+        await startManualCatalogRefresh(isPullToRefresh: true)?.value
+    }
+
     private var isCatalogLoading: Bool {
         manualCatalogRefreshTask != nil
             || catalogState.loadingState != .idle
@@ -855,7 +894,8 @@ struct IPTVRootView: View {
     }
 
     @MainActor
-    private func startManualCatalogRefresh() {
+    @discardableResult
+    private func startManualCatalogRefresh(isPullToRefresh: Bool = false) -> Task<Void, Never>? {
         guard manualCatalogRefreshTask == nil,
               automaticSynchronizationID == nil,
               catalogState.loadingState == .idle,
@@ -863,20 +903,23 @@ struct IPTVRootView: View {
               let sourceID = activeSource?.id,
               let catalogService,
               let epgService else {
-            return
+            return nil
         }
 
+        manualCatalogRefreshIsPullToRefresh = isPullToRefresh
         let refreshID = UUID()
         manualCatalogRefreshID = refreshID
-        presentSyncCapsule(
-            .synchronizing(AppLocalization.string("iptv.catalog.sync.synchronizing"))
-        )
+        if isPullToRefresh { dismissSyncCapsule() }
+        else {
+            presentSyncCapsule(.synchronizing(AppLocalization.string("iptv.catalog.sync.synchronizing")))
+        }
 
         manualCatalogRefreshTask = Task { @MainActor in
             defer {
                 if manualCatalogRefreshID == refreshID {
                     manualCatalogRefreshTask = nil
                     manualCatalogRefreshID = nil
+                    manualCatalogRefreshIsPullToRefresh = false
                 }
             }
 
@@ -894,6 +937,7 @@ struct IPTVRootView: View {
                 epgSucceeded: epgService.state(for: sourceID).lastError == nil
             )
         }
+        return manualCatalogRefreshTask
     }
 
     @MainActor
@@ -964,6 +1008,7 @@ struct IPTVRootView: View {
         manualCatalogRefreshTask?.cancel()
         manualCatalogRefreshTask = nil
         manualCatalogRefreshID = nil
+        manualCatalogRefreshIsPullToRefresh = false
         dismissSyncCapsule()
     }
 
@@ -1524,6 +1569,7 @@ private struct IPTVChannelsView: View {
     var searchConfiguration: IPTVSearchConfiguration? = nil
     var epgCatalog: EPGCatalog? = nil
     var epgReferenceDate = Date()
+    var onRefresh: (@MainActor @Sendable () async -> Void)? = nil
 
     @AppStorage("iptv.display.layout") private var layoutRawValue = VideoListLayout.list.rawValue
     @AppStorage("iptv.display.rowStyle") private var rowStyleRawValue = VideoRowStyle.regular.rawValue
@@ -1586,6 +1632,7 @@ private struct IPTVChannelsView: View {
                     .frame(maxWidth: .infinity, minHeight: 360)
                 }
                 .iptvSearchable(searchConfiguration)
+                .iptvRefreshable(onRefresh)
             } else if layout == .grid {
                 ScrollView {
                     LazyVGrid(
@@ -1607,6 +1654,7 @@ private struct IPTVChannelsView: View {
                     .padding(.bottom, 12)
                 }
                 .iptvSearchable(searchConfiguration)
+                .iptvRefreshable(onRefresh)
             } else {
                 List {
                     if showsNavigationChrome {
@@ -1618,6 +1666,7 @@ private struct IPTVChannelsView: View {
                     }
                 }
                 .iptvSearchable(searchConfiguration)
+                .iptvRefreshable(onRefresh)
             }
         }
         .reactiveNavigationTitle(

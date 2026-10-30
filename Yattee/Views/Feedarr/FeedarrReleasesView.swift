@@ -15,6 +15,7 @@ struct FeedarrReleasesView: View {
     var isManuallyRefreshing = false
     @Binding var isSearchPresented: Bool
     var onSelectRelease: ((FeedarrRelease) -> Void)? = nil
+    var onRefresh: (@MainActor @Sendable () async -> Void)? = nil
     @FocusState private var searchFocused: Bool
     @AppStorage("feedarrReleasesLayout") private var layout: VideoListLayout = .grid
     @AppStorage("feedarrReleasesRowStyle") private var rowStyle: VideoRowStyle = .regular
@@ -99,6 +100,11 @@ struct FeedarrReleasesView: View {
                 .padding(.top, 16)
                 .padding(.bottom, 24)
             }
+            .refreshable {
+                guard isVisible else { return }
+                await onRefresh?()
+            }
+            .scrollBounceBehavior(.always, axes: .vertical)
             .id(model.catalogGeneration)
         }
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { viewWidth = $0 }

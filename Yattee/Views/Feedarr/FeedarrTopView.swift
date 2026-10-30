@@ -14,6 +14,7 @@ struct FeedarrTopView: View {
     let isVisible: Bool
     var isManuallyRefreshing = false
     var onSelectRelease: ((FeedarrRelease) -> Void)? = nil
+    var onRefresh: (@MainActor @Sendable () async -> Void)? = nil
     @Environment(\.horizontalSizeClass) private var sizeClass
 
     var body: some View {
@@ -43,6 +44,11 @@ struct FeedarrTopView: View {
                 .padding(.top, 16)
                 .padding(.bottom, 24)
             }
+            .refreshable {
+                guard isVisible else { return }
+                await onRefresh?()
+            }
+            .scrollBounceBehavior(.always, axes: .vertical)
         }
         .onAppear { model.setVisible(isVisible) }
         .onChange(of: isVisible) { model.setVisible(isVisible) }
