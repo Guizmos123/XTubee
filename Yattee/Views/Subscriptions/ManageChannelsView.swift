@@ -5,7 +5,9 @@
 //  View for managing subscribed channels.
 //
 
+import Foundation
 import SwiftUI
+import SwiftData
 
 struct ManageChannelsView: View {
     @Environment(\.appEnvironment) private var appEnvironment
@@ -30,7 +32,7 @@ struct ManageChannelsView: View {
     #endif
     @AppStorage("manageChannelsSortOrder") private var sortOrder: SidebarChannelSort = .alphabetical
 
-    @State private var subscriptionMetadata: [String: Subscription] = [:]
+    @State private var subscriptionMetadata: [ChannelID: Subscription] = [:]
 
     /// List style from centralized settings.
     private var listStyle: VideoListStyle {
@@ -160,14 +162,14 @@ struct ManageChannelsView: View {
             result.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
         case .recentlySubscribed:
             result.sort { ch1, ch2 in
-                let d1 = subscriptionMetadata[ch1.id.channelID]?.subscribedAt ?? .distantPast
-                let d2 = subscriptionMetadata[ch2.id.channelID]?.subscribedAt ?? .distantPast
+                let d1 = subscriptionMetadata[ch1.id]?.subscribedAt ?? .distantPast
+                let d2 = subscriptionMetadata[ch2.id]?.subscribedAt ?? .distantPast
                 return d1 > d2
             }
         case .lastUploaded:
             result.sort { ch1, ch2 in
-                let d1 = subscriptionMetadata[ch1.id.channelID]?.lastVideoPublishedAt ?? .distantPast
-                let d2 = subscriptionMetadata[ch2.id.channelID]?.lastVideoPublishedAt ?? .distantPast
+                let d1 = subscriptionMetadata[ch1.id]?.lastVideoPublishedAt ?? .distantPast
+                let d2 = subscriptionMetadata[ch2.id]?.lastVideoPublishedAt ?? .distantPast
                 return d1 > d2
             }
         case .custom:
@@ -269,9 +271,7 @@ struct ManageChannelsView: View {
             if let syncChannels = subscriptionService?.fetchSubscriptionsSync() {
                 channels = syncChannels
             }
-            subscriptionMetadata = Dictionary(
-                uniqueKeysWithValues: (dataManager?.subscriptions() ?? []).map { ($0.channelID, $0) }
-            )
+            subscriptionMetadata = Self.subscriptionMetadataMap(dataManager?.subscriptions() ?? [])
         }
         .task {
             guard channels.isEmpty else { return }
@@ -291,6 +291,25 @@ struct ManageChannelsView: View {
                 await refreshChannels()
             }
         }
+    }
+
+    /// Match the same source identity as the displayed channel; a bare ID can
+    /// belong to several providers/instances. Do not let one overwrite another.
+    static func subscriptionMetadataMap(_ subscriptions: [Subscription]) -> [ChannelID: Subscription] {
+        Dictionary(subscriptions.map {
+            (ChannelID(source: $0.contentSource, channelID: $0.channelID), $0)
+        }, uniquingKeysWith: { first, second in
+            if first.lastUpdatedAt != second.lastUpdatedAt {
+                return first.lastUpdatedAt > second.lastUpdatedAt ? first : second
+            }
+            // Equal metadata timestamps: preserve the earliest subscription date.
+            if first.subscribedAt != second.subscribedAt {
+                return first.subscribedAt < second.subscribedAt ? first : second
+            }
+            if first.name != second.name { return first.name < second.name ? first : second }
+            // A final stable identity tie-break avoids depending on fetch order.
+            return first.persistentModelID < second.persistentModelID ? first : second
+        })
     }
 
     // MARK: - Content Views
