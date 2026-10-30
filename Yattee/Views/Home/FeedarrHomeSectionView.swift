@@ -81,6 +81,10 @@ struct FeedarrHomeSectionView: View {
             .padding(.horizontal, 16).padding(.bottom, 16)
     }
 
+    private var usesCompactCarousel: Bool {
+        UIDevice.current.userInterfaceIdiom == .phone && layout == .grid
+    }
+
     @ViewBuilder
     private func cards(_ releases: [FeedarrRelease], environment: AppEnvironment, revision: UUID) -> some View {
         let select: (FeedarrRelease) -> Void = { release in
@@ -99,12 +103,19 @@ struct FeedarrHomeSectionView: View {
             }
         } else {
             ScrollView(.horizontal, showsIndicators: false) {
-                LazyHStack(alignment: .top, spacing: layout == .large ? 12 : 28) {
+                LazyHStack(alignment: .top, spacing: layout == .large || usesCompactCarousel ? 12 : 28) {
                     ForEach(releases) { release in
                         if layout == .large {
                             FeedarrReleaseCard(release: release, posterService: environment.feedarrPosterService,
                                                onSelectRelease: select, titleLineLimit: 3)
                                 .containerRelativeFrame(.horizontal) { width, _ in min(width * 0.8, 280) }
+                        } else if usesCompactCarousel {
+                            FeedarrReleaseCard(release: release, posterService: environment.feedarrPosterService,
+                                               onSelectRelease: select, titleLineLimit: 3)
+                                .containerRelativeFrame(.horizontal) { width, _ in
+                                    // Two full posters, two gaps and the start of a third.
+                                    max(1, (width - 24) / 2.3)
+                                }
                         } else {
                             FeedarrReleaseCard(release: release, posterService: environment.feedarrPosterService,
                                                onSelectRelease: select, titleLineLimit: 3)
