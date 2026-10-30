@@ -164,6 +164,7 @@ final class PlayerService {
 
     private var progressSaveTimer: Timer?
     private let progressSaveInterval: TimeInterval = 5
+    private var lastSavedProgress: (videoID: VideoID, seconds: TimeInterval, duration: TimeInterval, isLive: Bool)?
 
     /// Now Playing service for Control Center/Lock Screen.
     private let nowPlayingService = NowPlayingService()
@@ -374,6 +375,7 @@ final class PlayerService {
         // Skipped for same-video calls (e.g. in-video quality switch) so the
         // full stream list kept around for the picker survives the switch.
         if isNewVideo {
+            lastSavedProgress = nil
             availableStreams = []
         }
 
@@ -2995,7 +2997,7 @@ final class PlayerService {
         }
     }
 
-    private func saveProgress() {
+    func saveProgress() {
         guard state.playbackContext.allowsPersistence,
               settingsManager?.incognitoModeEnabled != true,
               settingsManager?.saveWatchHistory != false else { return }
@@ -3003,12 +3005,44 @@ final class PlayerService {
         guard let video = state.currentVideo,
               state.currentTime > 0 else { return }
 
+        let position = (videoID: video.id, seconds: state.currentTime, duration: state.duration, isLive: state.isLive)
+        if let lastSavedProgress,
+           lastSavedProgress.videoID == position.videoID,
+           lastSavedProgress.seconds == position.seconds,
+           lastSavedProgress.duration == position.duration,
+           lastSavedProgress.isLive == position.isLive {
+            // A first insertion sets watchedSeconds without running updateProgress.
+            // Allow the existing follow-up update to apply its 90% completion rule.
+            guard let entry = dataManager.watchEntry(for: video.id.videoID),
+                  !entry.isLive, !entry.isFinished, entry.progress >= 0.9 else { return }
+        }
+
         // Save locally only during playback - no iCloud sync overhead.
         // Live streams still get a history entry, but no resume position.
-        dataManager.updateWatchProgressLocal(for: video, seconds: state.currentTime, duration: state.duration, isLive: state.isLive)
+        withProtectedProgressSave {
+            dataManager.updateWatchProgressLocal(for: video, seconds: position.seconds, duration: position.duration, isLive: position.isLive)
+        }
+        lastSavedProgress = position
 
         // Update Handoff activity with current playback time
         handoffManager?.updatePlaybackTime(state.currentTime)
+    }
+
+    /// Keep synchronous SQLite saves alive until they return, including final
+    /// saves triggered by stop, video changes and background transitions.
+    private func withProtectedProgressSave(_ save: () -> Void) {
+        #if os(iOS)
+        var backgroundTask: UIBackgroundTaskIdentifier = .invalid
+        if UIApplication.shared.applicationState != .active {
+            backgroundTask = UIApplication.shared.beginBackgroundTask(withName: "SaveWatchProgress")
+        }
+        defer {
+            if backgroundTask != .invalid {
+                UIApplication.shared.endBackgroundTask(backgroundTask)
+            }
+        }
+        #endif
+        save()
     }
 
     /// Saves progress as 100% completed when video finishes naturally.
@@ -3032,7 +3066,9 @@ final class PlayerService {
         // Save the full duration as watched time and queue for iCloud sync.
         // This is the only save for a naturally finished video — play() skips
         // saveProgressAndSync() when videoEndedNaturally is set.
-        dataManager.updateWatchProgress(for: video, seconds: completedDuration, duration: completedDuration)
+        withProtectedProgressSave {
+            dataManager.updateWatchProgress(for: video, seconds: completedDuration, duration: completedDuration)
+        }
 
         // Update Handoff activity with completed time
         handoffManager?.updatePlaybackTime(completedDuration)
@@ -3049,7 +3085,9 @@ final class PlayerService {
               state.currentTime > 0 else { return }
 
         // Save and queue for iCloud sync (used when video closes/switches)
-        dataManager.updateWatchProgress(for: video, seconds: state.currentTime, duration: state.duration, isLive: state.isLive)
+        withProtectedProgressSave {
+            dataManager.updateWatchProgress(for: video, seconds: state.currentTime, duration: state.duration, isLive: state.isLive)
+        }
         NotificationCenter.default.post(name: .watchHistoryDidChange, object: nil)
     }
 
@@ -3113,6 +3151,7 @@ final class PlayerService {
 
         progressSaveTimer?.invalidate()
         progressSaveTimer = nil
+        lastSavedProgress = nil
 
         // Remove audio session interruption observer
         #if os(iOS) || os(tvOS)
