@@ -82,6 +82,7 @@ enum SettingsKey: String, CaseIterable {
     case homeSectionVisibility
     case homeSectionItemsLimit
     case homeSectionLayout
+    case homeFeedarrPresentation
     case moreHomePresentation
 
     // Top Shelf (tvOS)
@@ -162,7 +163,7 @@ enum SettingsKey: String, CaseIterable {
              .homeShortcutOrder, .homeShortcutVisibility, .homeShortcutLayout, .homeShortcutCardStyle,
              .homeShortcutCardColor, .homeShortcutColorfulPalette, .homeShortcutCustomPaletteColors,
              .homeSectionOrder, .homeSectionVisibility, .homeSectionItemsLimit, .homeSectionLayout,
-             .moreHomePresentation,
+             .homeFeedarrPresentation, .moreHomePresentation,
              // Top Shelf — tvOS only
              .topShelfSections,
              // Tab bar (compact size class) layout

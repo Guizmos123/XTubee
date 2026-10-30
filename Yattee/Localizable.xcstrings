@@ -7417,6 +7417,27 @@
         }
       }
     },
+    "home.settings.feedarr.availableSections" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Available Feedarr sections" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Sections Feedarr disponibles" } }
+      }
+    },
+    "home.settings.feedarr.sections" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Feedarr sections" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Sections Feedarr" } }
+      }
+    },
+    "home.settings.sections.order" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Section order" } },
+        "fr" : { "stringUnit" : { "state" : "translated", "value" : "Ordre des sections" } }
+      }
+    },
     "home.settings.itemsLimit" : {
       "comment" : "Label for items limit stepper in library settings",
       "localizations" : {

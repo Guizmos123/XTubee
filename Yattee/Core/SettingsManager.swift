@@ -126,6 +126,7 @@ final class SettingsManager {
     var _homeSectionVisibility: [HomeSectionItem: Bool]?
     var _homeSectionItemsLimit: Int?
     var _homeSectionLayout: HomeSectionLayout?
+    var _homeFeedarrPresentation: FeedarrHomePresentation?
     var _moreHomePresentation: HomePresentationSettings?
 
     // Top Shelf (tvOS)
@@ -502,6 +503,7 @@ final class SettingsManager {
         _homeSectionVisibility = nil
         _homeSectionItemsLimit = nil
         _homeSectionLayout = nil
+        _homeFeedarrPresentation = nil
         _moreHomePresentation = nil
         _topShelfSections = nil
         _tabBarItemOrder = nil

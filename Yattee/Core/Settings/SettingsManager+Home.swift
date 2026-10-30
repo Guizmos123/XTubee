@@ -12,6 +12,11 @@ enum HomeCustomizationContext: Sendable {
     case hub
 }
 
+struct FeedarrHomePresentation: Codable, Equatable, Sendable {
+    var layout: HomeSectionLayout
+    var itemsLimit: Int
+}
+
 struct HomePresentationSettings: Codable, Equatable, Sendable {
     var shortcutLayout: HomeShortcutLayout
     var shortcutCardStyle: HomeShortcutCardStyle
@@ -24,6 +29,18 @@ struct HomePresentationSettings: Codable, Equatable, Sendable {
     var sectionVisibility: [HomeSectionItem: Bool]
     var sectionItemsLimit: Int
     var sectionLayout: HomeSectionLayout
+    // Optional for decoding documents saved before Feedarr had separate controls.
+    var feedarrPresentation: FeedarrHomePresentation? = nil
+
+    var resolvedFeedarrPresentation: FeedarrHomePresentation {
+        feedarrPresentation ?? FeedarrHomePresentation(layout: sectionLayout, itemsLimit: sectionItemsLimit)
+    }
+
+    func migratingFeedarrPresentation() -> Self {
+        var migrated = self
+        migrated.feedarrPresentation = resolvedFeedarrPresentation
+        return migrated
+    }
 
     var visibleShortcuts: [HomeShortcutItem] {
         shortcutOrder.filter { shortcutVisibility[$0] ?? true }
@@ -43,8 +60,13 @@ extension SettingsManager {
             if let cached = _moreHomePresentation { return cached }
             if let data = data(for: .moreHomePresentation),
                let saved = try? JSONDecoder().decode(HomePresentationSettings.self, from: data) {
-                _moreHomePresentation = saved
-                return saved
+                let migrated = saved.migratingFeedarrPresentation()
+                if saved.feedarrPresentation == nil {
+                    setPresentationSettings(migrated, for: .hub)
+                } else {
+                    _moreHomePresentation = migrated
+                }
+                return migrated
             }
 
             // First use only: clone the existing Home presentation, then persist
@@ -56,6 +78,7 @@ extension SettingsManager {
     }
 
     func setPresentationSettings(_ presentation: HomePresentationSettings, for context: HomeCustomizationContext) {
+        let presentation = presentation.migratingFeedarrPresentation()
         switch context {
         case .home:
             homeShortcutLayout = presentation.shortcutLayout
@@ -69,6 +92,7 @@ extension SettingsManager {
             homeSectionVisibility = presentation.sectionVisibility
             homeSectionItemsLimit = presentation.sectionItemsLimit
             homeSectionLayout = presentation.sectionLayout
+            homeFeedarrPresentation = presentation.resolvedFeedarrPresentation
         case .hub:
             _moreHomePresentation = presentation
             if let data = try? JSONEncoder().encode(presentation) {
@@ -89,8 +113,30 @@ extension SettingsManager {
             sectionOrder: homeSectionOrder,
             sectionVisibility: homeSectionVisibility,
             sectionItemsLimit: homeSectionItemsLimit,
-            sectionLayout: homeSectionLayout
+            sectionLayout: homeSectionLayout,
+            feedarrPresentation: homeFeedarrPresentation
         )
+    }
+
+    private var homeFeedarrPresentation: FeedarrHomePresentation {
+        get {
+            if let cached = _homeFeedarrPresentation { return cached }
+            if let data = data(for: .homeFeedarrPresentation),
+               let saved = try? JSONDecoder().decode(FeedarrHomePresentation.self, from: data) {
+                _homeFeedarrPresentation = saved
+                return saved
+            }
+            // Freeze the legacy shared values once, before subsequent YouTube edits.
+            let migrated = FeedarrHomePresentation(layout: homeSectionLayout, itemsLimit: homeSectionItemsLimit)
+            homeFeedarrPresentation = migrated
+            return migrated
+        }
+        set {
+            _homeFeedarrPresentation = newValue
+            if let data = try? JSONEncoder().encode(newValue) {
+                set(data, for: .homeFeedarrPresentation)
+            }
+        }
     }
 
     // MARK: - Home Shortcut Settings

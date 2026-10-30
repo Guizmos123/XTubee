@@ -468,6 +468,40 @@ enum HomeSectionItem: Codable, Hashable, Identifiable, Sendable {
     /// No longer user-addable and not rendered.
     case mediaSource(sourceID: UUID)
 
+    var isFeedarr: Bool {
+        if case .feedarr = self { return true }
+        return false
+    }
+
+    static func customizationSections(in order: [Self], feedarr: Bool, sourceConfigured: Bool) -> [Self] {
+        guard !feedarr || sourceConfigured else { return [] }
+        return order.filter { $0.isFeedarr == feedarr }
+    }
+
+    static func availableFeedarrSections(in order: [Self]) -> [Self] {
+        FeedarrHomeSection.allCases.map { Self.feedarr($0) }.filter { !order.contains($0) }
+    }
+
+    /// Hidden sections keep their saved slots and are never reactivated by a move.
+    static func reorderedVisible(in order: [Self], visibility: [Self: Bool], from offsets: IndexSet, to destination: Int) -> [Self] {
+        let indices = order.indices.filter { visibility[order[$0]] == true }
+        var visible = indices.map { order[$0] }
+        visible.move(fromOffsets: offsets, toOffset: destination)
+        var result = order
+        for (index, item) in zip(indices, visible) { result[index] = item }
+        return result
+    }
+
+    /// Reorder one editor group without moving the other group's global slots.
+    static func reorderedGroup(in order: [Self], feedarr: Bool, from offsets: IndexSet, to destination: Int) -> [Self] {
+        let indices = order.indices.filter { order[$0].isFeedarr == feedarr }
+        var group = indices.map { order[$0] }
+        group.move(fromOffsets: offsets, toOffset: destination)
+        var result = order
+        for (index, item) in zip(indices, group) { result[index] = item }
+        return result
+    }
+
     var id: String {
         switch self {
         case .feedarr(let section): return "feedarr_" + section.rawValue

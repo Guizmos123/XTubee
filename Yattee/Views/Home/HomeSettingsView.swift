@@ -28,6 +28,8 @@ struct HomeSettingsView: View {
     @State private var sectionVisibility: [HomeSectionItem: Bool] = [:]
     @State private var sectionItemsLimit: Int = 5
     @State private var sectionLayout: HomeSectionLayout = HomeSectionLayout.platformDefault
+    @State private var feedarrSectionLayout: HomeSectionLayout = HomeSectionLayout.platformDefault
+    @State private var feedarrSectionItemsLimit = 5
     
     // Available items (not yet added to Home)
     @State private var availableShortcutsByInstance: [(instance: Instance, cards: [HomeShortcutItem])] = []
@@ -65,6 +67,14 @@ struct HomeSettingsView: View {
             sectionsSection
             availableSectionsSection
             itemsLimitSection
+            #if os(iOS)
+            if showsFeedarrSettings {
+                feedarrSectionsSection
+                availableFeedarrSectionsSection
+                feedarrItemsLimitSection
+                globalSectionOrderSection
+            }
+            #endif
         }
         #if os(iOS)
         .environment(\.editMode, isEditMode ? .constant(.active) : .constant(.inactive))
@@ -246,11 +256,11 @@ struct HomeSettingsView: View {
                 }
             }
             #else
-            ForEach(sectionOrder) { section in
+            ForEach(youtubeSections) { section in
                 sectionRowView(for: section)
             }
             .onMove { from, to in
-                sectionOrder.move(fromOffsets: from, toOffset: to)
+                sectionOrder = HomeSectionItem.reorderedGroup(in: sectionOrder, feedarr: false, from: from, to: to)
             }
             #endif
         } header: {
@@ -260,27 +270,50 @@ struct HomeSettingsView: View {
         }
     }
     
-    private var availableFeedarrSections: [HomeSectionItem] {
+    private var showsFeedarrSettings: Bool {
         #if os(iOS)
-        FeedarrHomeSection.allCases.map { HomeSectionItem.feedarr($0) }
-            .filter { !sectionOrder.contains($0) }
+        appEnvironment?.feedarrSourcesManager.source != nil
         #else
-        []
+        false
         #endif
     }
 
-    private var availableSectionsSection: some View {
+    private var youtubeSections: [HomeSectionItem] {
+        HomeSectionItem.customizationSections(in: sectionOrder, feedarr: false, sourceConfigured: showsFeedarrSettings)
+    }
+
+    private var feedarrSections: [HomeSectionItem] {
+        HomeSectionItem.customizationSections(in: sectionOrder, feedarr: true, sourceConfigured: showsFeedarrSettings)
+    }
+
+    #if os(iOS)
+    private var feedarrSectionsSection: some View {
         Section {
-            if availableSectionsByInstance.isEmpty && availableFeedarrSections.isEmpty {
+            Picker(AppLocalization.string("home.settings.sections.layout"), selection: $feedarrSectionLayout) {
+                ForEach(HomeSectionLayout.allCases, id: \.self) { layout in
+                    Label(layout.displayName, systemImage: layout.systemImage).tag(layout)
+                }
+            }
+            #if !os(tvOS)
+            .pickerStyle(.segmented)
+            #endif
+            ForEach(feedarrSections) { section in
+                sectionRowView(for: section)
+            }
+            .onMove { from, to in
+                sectionOrder = HomeSectionItem.reorderedGroup(in: sectionOrder, feedarr: true, from: from, to: to)
+            }
+        } header: {
+            Text(AppLocalization.string("home.settings.feedarr.sections"))
+        }
+    }
+
+    private var availableFeedarrSectionsSection: some View {
+        Section {
+            if availableFeedarrSections.isEmpty {
                 Text(AppLocalization.string("home.settings.availableSections.empty"))
                     .foregroundStyle(.secondary)
                     .italic()
-            } else {
-                ForEach(availableSectionsByInstance, id: \.instance.id) { item in
-                    ForEach(item.sections) { section in
-                        availableSectionRow(for: section, instance: item.instance)
-                    }
-                }
             }
             ForEach(availableFeedarrSections) { section in
                 HStack {
@@ -296,6 +329,73 @@ struct HomeSettingsView: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(section.localizedTitle)
+                }
+            }
+        } header: {
+            Text(AppLocalization.string("home.settings.feedarr.availableSections"))
+        }
+    }
+
+    private var feedarrItemsLimitSection: some View {
+        Section {
+            Stepper(value: $feedarrSectionItemsLimit, in: 1...20) {
+                HStack {
+                    Text(AppLocalization.string("home.settings.itemsLimit"))
+                    Spacer()
+                    Text("\(feedarrSectionItemsLimit)").foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    private var visibleSectionOrder: [HomeSectionItem] {
+        sectionOrder.filter { sectionVisibility[$0] == true }
+    }
+
+    private var globalSectionOrderSection: some View {
+        Section {
+            ForEach(visibleSectionOrder) { section in
+                Label(globalSectionTitle(section), systemImage: section.icon)
+            }
+            .onMove { from, to in
+                sectionOrder = HomeSectionItem.reorderedVisible(in: sectionOrder, visibility: sectionVisibility, from: from, to: to)
+            }
+            #if os(iOS)
+            .environment(\.editMode, .constant(.active))
+            #endif
+        } header: {
+            Text(AppLocalization.string("home.settings.sections.order"))
+        }
+    }
+
+    private func globalSectionTitle(_ section: HomeSectionItem) -> String {
+        if case .instanceContent(let id, let type) = section, let instance = instanceFromID(id) {
+            return "\(instance.displayName) - \(type.localizedTitle)"
+        }
+        return section.localizedTitle
+    }
+
+    #endif
+
+    private var availableFeedarrSections: [HomeSectionItem] {
+        #if os(iOS)
+        HomeSectionItem.availableFeedarrSections(in: sectionOrder)
+        #else
+        []
+        #endif
+    }
+
+    private var availableSectionsSection: some View {
+        Section {
+            if availableSectionsByInstance.isEmpty {
+                Text(AppLocalization.string("home.settings.availableSections.empty"))
+                    .foregroundStyle(.secondary)
+                    .italic()
+            } else {
+                ForEach(availableSectionsByInstance, id: \.instance.id) { item in
+                    ForEach(item.sections) { section in
+                        availableSectionRow(for: section, instance: item.instance)
+                    }
                 }
             }
         } header: {
@@ -387,6 +487,8 @@ struct HomeSettingsView: View {
         sectionVisibility = presentation.sectionVisibility
         sectionItemsLimit = presentation.sectionItemsLimit
         sectionLayout = presentation.sectionLayout
+        feedarrSectionLayout = presentation.resolvedFeedarrPresentation.layout
+        feedarrSectionItemsLimit = presentation.resolvedFeedarrPresentation.itemsLimit
 
         // Load available items
         let instances = env.instancesManager.instances
@@ -434,7 +536,8 @@ struct HomeSettingsView: View {
                 sectionOrder: sectionOrder,
                 sectionVisibility: sectionVisibility,
                 sectionItemsLimit: sectionItemsLimit,
-                sectionLayout: sectionLayout
+                sectionLayout: sectionLayout,
+                feedarrPresentation: FeedarrHomePresentation(layout: feedarrSectionLayout, itemsLimit: feedarrSectionItemsLimit)
             ),
             for: customizationContext
         )

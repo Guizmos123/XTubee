@@ -1152,7 +1152,9 @@ struct HomeView: View {
             #if os(iOS)
             if let appEnvironment {
                 FeedarrHomeSectionView(kind: kind, model: appEnvironment.feedarrHomeTopModel,
-                                       layout: sectionLayout, listStyle: listStyle, limit: sectionItemsLimit)
+                                       layout: presentationSettings?.resolvedFeedarrPresentation.layout ?? sectionLayout,
+                                       listStyle: listStyle,
+                                       limit: presentationSettings?.resolvedFeedarrPresentation.itemsLimit ?? sectionItemsLimit)
             }
             #else
             EmptyView()
